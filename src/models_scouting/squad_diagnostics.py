@@ -38,7 +38,7 @@ class SquadDiagnostics:
         que acumulan un porcentaje alto de minutos en su posición).
         """
         team_df = self.df[self.df['team_name'] == team_name].copy()
-        if team_df.empty:
+        if team_df.empty or 'minutes' not in team_df.columns or 'age' not in team_df.columns:
             return pd.DataFrame()
 
         # Calcular el total de minutos jugados por posición en el equipo

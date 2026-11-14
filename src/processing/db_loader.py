@@ -32,8 +32,9 @@ class DBLoader:
 
         try:
             for _, row in df_matches.iterrows():
-                home_team_id = self.insert_team_if_not_exists(conn, row['home_team'], league)
-                away_team_id = self.insert_team_if_not_exists(conn, row['away_team'], league)
+                row_league = row['league'] if 'league' in row and pd.notnull(row['league']) else league
+                home_team_id = self.insert_team_if_not_exists(conn, row['home_team'], row_league)
+                away_team_id = self.insert_team_if_not_exists(conn, row['away_team'], row_league)
 
                 match_date = row['match_date']
                 home_goals = int(row['home_goals'])
@@ -75,8 +76,9 @@ class DBLoader:
 
         try:
             for _, row in df_players.iterrows():
+                row_league = row['league'] if 'league' in row and pd.notnull(row['league']) else league
                 team_name = row['team_name'] if pd.notnull(row['team_name']) else "Desconocido"
-                team_id = self.insert_team_if_not_exists(conn, team_name, league)
+                team_id = self.insert_team_if_not_exists(conn, team_name, row_league)
 
                 player_name = row['player_name']
                 position = str(row['position']) if pd.notnull(row['position']) else None

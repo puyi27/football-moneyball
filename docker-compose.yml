@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16
@@ -24,6 +22,7 @@ services:
     environment:
       - JUPYTER_ENABLE_LAB=yes
       - GRANT_SUDO=yes
+      - PYTHONPATH=/home/jovyan/work
     user: root
     ports:
       - "8888:8888"

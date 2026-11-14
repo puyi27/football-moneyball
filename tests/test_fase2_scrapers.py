@@ -108,3 +108,43 @@ def test_db_loader_ingestion(sample_csv_path, sample_fbref_html):
 
     assert matches_count >= 2
     assert players_count >= 2
+
+def test_top5_and_scouting_leagues_coverage():
+    """Verifica que el scraper cubre las 5 grandes ligas y ligas secundarias de scouting."""
+    fd_scraper = FootballDataScraper()
+    supported_fd = fd_scraper.get_supported_leagues()
+
+    for expected_league in ["LaLiga", "Premier League", "Serie A", "Bundesliga", "Ligue 1", "Liga Portugal", "Eredivisie"]:
+        assert expected_league in supported_fd, f"{expected_league} debe estar soportada en FootballData"
+
+    fb_scraper = FBrefScraper()
+    supported_fb = fb_scraper.get_supported_leagues()
+    for expected_league in ["Big5", "LaLiga", "Premier League", "Serie A", "Bundesliga", "Ligue 1", "Liga Portugal", "Eredivisie"]:
+        assert expected_league in supported_fb, f"{expected_league} debe estar soportada en FBref"
+
+def test_parse_defense_stats_fbref():
+    """Verifica la extracción de métricas de recuperación (tackles, intercepciones, bloqueos)."""
+    defense_html = """
+    <html>
+        <body>
+            <table id="stats_defense">
+                <thead><tr><th>Player</th><th>Team</th><th>Tkl</th><th>Int</th><th>Blocks</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td data-stat="player">Aurélien Tchouaméni</td>
+                        <td data-stat="team">Real Madrid</td>
+                        <td data-stat="tackles">45</td>
+                        <td data-stat="interceptions">38</td>
+                        <td data-stat="blocks">22</td>
+                    </tr>
+                </tbody>
+            </table>
+        </body>
+    </html>
+    """
+    scraper = FBrefScraper(raw_data_dir="/tmp")
+    df = scraper.parse_defense_stats_html(defense_html)
+    assert len(df) == 1
+    assert df.iloc[0]["player_name"] == "Aurélien Tchouaméni"
+    assert df.iloc[0]["interceptions"] == 38
+    assert df.iloc[0]["tackles"] == 45
