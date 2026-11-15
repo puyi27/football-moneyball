@@ -232,3 +232,65 @@ class PlayerProfiler:
 
         cols = ["player_name", "team_name", "league", "position", "age", "market_value_m", "performance_index", "moneyball_ratio"]
         return df_eval[cols].sort_values(by="moneyball_ratio", ascending=False).head(top_n)
+
+    def generate_pizza_plot(self, player_series: pd.Series):
+        """
+        Genera un Pizza Plot (gráfico de percentiles circular) estándar de la industria (mplsoccer)
+        para el futbolista comparado con su posición en la base de datos de referencia.
+        """
+        try:
+            from mplsoccer import PyPizza
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+        except ImportError:
+            return None
+
+        pos = player_series.get("position", "MF")
+        pool = self.df[self.df["position"] == pos]
+        if pool.empty or len(pool) < 5:
+            pool = self.df
+
+        metrics = [
+            ("xg_p90", "xG /90"),
+            ("xa_p90", "xA /90"),
+            ("prog_passes_p90", "Pases Prog"),
+            ("dribbles_p90", "Regates /90"),
+            ("interceptions_p90", "Intercepciones"),
+            ("tackles_p90", "Entradas /90"),
+            ("market_value_m", "Valor Mercado"),
+            ("potential_ovr", "Potencial OVR")
+        ]
+
+        params = []
+        values = []
+        for col, label in metrics:
+            val = float(player_series.get(col, 0.0) or 0.0)
+            series = pool[col].dropna() if col in pool.columns else pd.Series([val])
+            if not series.empty:
+                pct = int(round((series <= val).mean() * 100))
+                pct = int(np.clip(pct, 5, 99))
+            else:
+                pct = 50
+            params.append(label)
+            values.append(pct)
+
+        baker = PyPizza(
+            params=params,
+            background_color="#0b0f19",
+            straight_line_color="#334155",
+            last_circle_color="#334155",
+            other_circle_color="#1e293b",
+            inner_circle_size=15
+        )
+
+        fig, ax = baker.make_pizza(
+            values,
+            figsize=(6.5, 6.5),
+            param_location=110,
+            kwargs_slices=dict(facecolor="#00ff87", edgecolor="#ffffff", linewidth=1.5, zorder=2),
+            kwargs_params=dict(color="#ffffff", fontsize=9, va="center"),
+            kwargs_values=dict(color="#000000", fontsize=9, zorder=3, bbox=dict(edgecolor="#ffffff", facecolor="#ffffff", boxstyle="round,pad=0.2", lw=1))
+        )
+        return fig
+

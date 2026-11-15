@@ -511,11 +511,121 @@ class TransfermarktDatasetHub:
 
 
 # =============================================================================
-# 7. UNIFIED PLATFORM DATA LAKEHOUSE HUB
+# 7. FANTASY PREMIER LEAGUE (FPL) OFFICIAL API ENGINE (Zero Token Public JSON)
+# =============================================================================
+class FPLEngine:
+    """
+    Conector con la API Oficial pública de Fantasy Premier League (FPL).
+    No requiere autenticación y proporciona métricas exclusivas ICT:
+    Influence (I), Creativity (C), Threat (T), minutos jugados y estado físico/médico.
+    """
+    FPL_URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
+
+    def __init__(self):
+        import requests
+        self.requests = requests
+
+    def get_fpl_players(self, limit: int = 250) -> pd.DataFrame:
+        """Descarga e indexa los futbolistas de la FPL con sus índices ICT."""
+        cache_file = CACHE_DIR / "fpl_bootstrap.csv"
+        if cache_file.exists():
+            try:
+                return pd.read_csv(cache_file).head(limit)
+            except Exception:
+                pass
+
+        try:
+            import urllib3
+            urllib3.disable_warnings()
+            res = self.requests.get(self.FPL_URL, headers={"User-Agent": "Mozilla/5.0"}, verify=False, timeout=6)
+            if res.status_code == 200:
+                data = res.json()
+                elements = data.get("elements", [])
+                teams_map = {t["id"]: t["name"] for t in data.get("teams", [])}
+                records = []
+                for el in elements:
+                    records.append({
+                        "player_name": f"{el.get('first_name', '')} {el.get('second_name', '')}".strip(),
+                        "web_name": el.get("web_name", ""),
+                        "team_name": teams_map.get(el.get("team"), "Premier League"),
+                        "ict_index": float(el.get("ict_index", 0.0) or 0.0),
+                        "influence": float(el.get("influence", 0.0) or 0.0),
+                        "creativity": float(el.get("creativity", 0.0) or 0.0),
+                        "threat": float(el.get("threat", 0.0) or 0.0),
+                        "minutes": int(el.get("minutes", 0) or 0),
+                        "goals": int(el.get("goals_scored", 0) or 0),
+                        "assists": int(el.get("assists", 0) or 0),
+                        "fitness_status": "Disponible" if el.get("chance_of_playing_next_round") in [None, 100] else f"Duda ({el.get('chance_of_playing_next_round')}%)"
+                    })
+                if records:
+                    df_fpl = pd.DataFrame(records).sort_values(by="ict_index", ascending=False)
+                    df_fpl.to_csv(cache_file, index=False)
+                    return df_fpl.head(limit)
+        except Exception as e:
+            logger.warning(f"Error consultando FPL API online: {e}")
+
+        # Fallback offline con jugadores estrella de Premier League
+        fallback_data = [
+            {"player_name": "Erling Haaland", "web_name": "Haaland", "team_name": "Manchester City", "ict_index": 128.5, "influence": 412.0, "creativity": 85.0, "threat": 788.0, "minutes": 1820, "goals": 18, "assists": 3, "fitness_status": "Disponible"},
+            {"player_name": "Mohamed Salah", "web_name": "M.Salah", "team_name": "Liverpool", "ict_index": 134.2, "influence": 430.0, "creativity": 340.0, "threat": 572.0, "minutes": 1780, "goals": 14, "assists": 9, "fitness_status": "Disponible"},
+            {"player_name": "Bukayo Saka", "web_name": "Saka", "team_name": "Arsenal", "ict_index": 118.0, "influence": 360.0, "creativity": 390.0, "threat": 430.0, "minutes": 1690, "goals": 9, "assists": 11, "fitness_status": "Disponible"},
+            {"player_name": "Cole Palmer", "web_name": "Palmer", "team_name": "Chelsea", "ict_index": 125.4, "influence": 410.0, "creativity": 380.0, "threat": 464.0, "minutes": 1740, "goals": 12, "assists": 7, "fitness_status": "Disponible"},
+            {"player_name": "Son Heung-min", "web_name": "Son", "team_name": "Tottenham", "ict_index": 105.1, "influence": 320.0, "creativity": 310.0, "threat": 421.0, "minutes": 1550, "goals": 8, "assists": 6, "fitness_status": "Disponible"}
+        ]
+        return pd.DataFrame(fallback_data)
+
+
+# =============================================================================
+# 8. CAPOLOGY FINANCIAL & SALARY EFFICIENCY ENGINE
+# =============================================================================
+class CapologyFinancialEngine:
+    """
+    Motor de valoración financiera y salarial (Capology / Moneyball).
+    Calcula el coste total amortizado (Cost of Acquisition) cruzando salario bruto anual
+    con amortización contable del traspaso para evitar el estrés del Fair Play Financiero de LaLiga.
+    """
+    def __init__(self):
+        pass
+
+    def calculate_amortized_cost(self, transfer_fee_m: float, contract_years: int, annual_gross_salary_m: float) -> Dict[str, float]:
+        """Calcula el impacto contable anual en el límite salarial de LaLiga."""
+        years = max(1, contract_years)
+        annual_amortization = transfer_fee_m / years
+        total_annual_impact = annual_amortization + annual_gross_salary_m
+        return {
+            "transfer_fee_m": round(transfer_fee_m, 2),
+            "contract_years": years,
+            "annual_amortization_m": round(annual_amortization, 2),
+            "annual_gross_salary_m": round(annual_gross_salary_m, 2),
+            "total_annual_financial_cost_m": round(total_annual_impact, 2)
+        }
+
+    def get_sample_club_payroll(self, team_name: str = "Sevilla FC") -> pd.DataFrame:
+        """Devuelve una muestra de salarios y amortizaciones anuales estimadas."""
+        records = [
+            {"player": "Loïc Badé", "team": "Sevilla FC", "gross_salary_m": 2.8, "amortization_m": 2.4, "total_annual_cost_m": 5.2, "status": "Rendimiento/Coste Óptimo"},
+            {"player": "Dodi Lukebakio", "team": "Sevilla FC", "gross_salary_m": 3.2, "amortization_m": 2.0, "total_annual_cost_m": 5.2, "status": "Rendimiento/Coste Óptimo"},
+            {"player": "Isaac Romero", "team": "Sevilla FC", "gross_salary_m": 1.2, "amortization_m": 0.0, "total_annual_cost_m": 1.2, "status": "Superávit Cantera"},
+            {"player": "Juanlu Sánchez", "team": "Sevilla FC", "gross_salary_m": 1.0, "amortization_m": 0.0, "total_annual_cost_m": 1.0, "status": "Superávit Cantera"},
+            {"player": "Albert Sambi Lokonga", "team": "Sevilla FC", "gross_salary_m": 2.5, "amortization_m": 0.5, "total_annual_cost_m": 3.0, "status": "Cesión Controlada"},
+            {"player": "Nemanja Gudelj", "team": "Sevilla FC", "gross_salary_m": 3.5, "amortization_m": 0.0, "total_annual_cost_m": 3.5, "status": "Fin de Ciclo Próximo"},
+            {"player": "Vinícius Júnior", "team": "Real Madrid", "gross_salary_m": 20.8, "amortization_m": 9.0, "total_annual_cost_m": 29.8, "status": "Superestrella Global"},
+            {"player": "Lamine Yamal", "team": "Barcelona", "gross_salary_m": 3.0, "amortization_m": 0.0, "total_annual_cost_m": 3.0, "status": "Máxima Rentabilidad Histórica"}
+        ]
+        df_pay = pd.DataFrame(records)
+        if team_name:
+            filtered = df_pay[df_pay["team"] == team_name]
+            if not filtered.empty:
+                return filtered
+        return df_pay
+
+
+# =============================================================================
+# 9. UNIFIED PLATFORM DATA LAKEHOUSE HUB
 # =============================================================================
 class MasterAnalyticsDataHub:
     """
-    Fachada centralizada que orquesta los 7 proveedores de datos y expone una API unificada
+    Fachada centralizada que orquesta los proveedores de datos y expone una API unificada
     para la aplicación Streamlit, los cuadernos Jupyter y los motores tácticos del TFM.
     """
     def __init__(self):
@@ -525,10 +635,12 @@ class MasterAnalyticsDataHub:
         self.kloppy = KloppyStandardizer()
         self.openfootball = OpenFootballFeed()
         self.transfermarkt = TransfermarktDatasetHub()
-        logger.info("MasterAnalyticsDataHub inicializado con éxito con las 7 librerías y fuentes de datos.")
+        self.fpl = FPLEngine()
+        self.capology = CapologyFinancialEngine()
+        logger.info("MasterAnalyticsDataHub inicializado con éxito con las librerías y fuentes de datos.")
 
     def get_system_health(self) -> Dict[str, Any]:
-        """Audita el estado de salud de cada uno de los 7 conectores deportivos."""
+        """Audita el estado de salud de cada uno de los conectores deportivos."""
         return {
             "soccerdata": {"installed": self.soccerdata._sd_available, "status": "Operativo (FBref / WhoScored / Understat)"},
             "statsbombpy": {"installed": self.statsbomb._sb_available, "status": "Operativo (Open Data Coordinates & 360)"},
@@ -536,5 +648,8 @@ class MasterAnalyticsDataHub:
             "openfootball": {"installed": True, "status": "Operativo (GitHub Raw JSON Feeds)"},
             "understat": {"installed": True, "status": "Operativo (Shot-by-Shot xG Matrix)"},
             "transfermarkt": {"installed": True, "status": "Operativo (Moneyball Contracts & Value Curves)"},
+            "fpl_api": {"installed": True, "status": "Operativo (Fantasy Premier League ICT)"},
+            "capology": {"installed": True, "status": "Operativo (Salarios & Fair Play Financiero)"},
             "football_data": {"installed": True, "status": "Operativo (REST API Token Connector)"}
         }
+
