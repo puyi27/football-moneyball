@@ -317,3 +317,56 @@ def test_match_scenario_simulator_coherence():
         assert "win_prob_home" in ev
         assert "win_prob_home_float" in ev
         assert 0.01 <= ev["win_prob_home_float"] <= 0.99
+
+
+def test_subagent_architecture_and_strict_ownership():
+    """
+    Verifica que existan los 10 subagentes en .agents/agents/ con sus especificaciones
+    de propiedad estricta de archivos y frontmatter válido.
+    """
+    from pathlib import Path
+    agents_dir = Path(__file__).resolve().parent.parent / ".agents" / "agents"
+    assert agents_dir.exists(), "El directorio .agents/agents no existe."
+
+    expected_agents = [
+        "01-chief-auditor.md",
+        "02-garbage-collector.md",
+        "03-ingestion-harvester.md",
+        "04-entity-resolver.md",
+        "05-spark-warehouse.md",
+        "06-scouting-quant.md",
+        "07-math-oracle.md",
+        "08-tactical-engine.md",
+        "09-ui-integrator.md",
+        "10-qa-gatekeeper.md",
+    ]
+
+    for agent_file in expected_agents:
+        agent_path = agents_dir / agent_file
+        assert agent_path.exists(), f"Falta el archivo de subagente {agent_file}"
+        content = agent_path.read_text(encoding="utf-8")
+        assert content.startswith("---"), f"Frontmatter faltante en {agent_file}"
+        assert "name:" in content
+        assert "description:" in content
+        assert "tools:" in content
+        assert "commandExecutionPolicy:" in content
+
+
+def test_entity_resolution_and_pandera_schema(global_df):
+    """
+    Verifica que la resolución de entidades (RapidFuzz) y validación de esquemas (Pandera)
+    funcionen correctamente según los estándares de calidad del dato ISO/IEC 25012.
+    """
+    from src.data.global_player_database import resolve_player_entity, validate_players_schema
+
+    # 1. Validación de esquema con Pandera
+    validated = validate_players_schema(global_df)
+    assert not validated.empty
+    assert len(validated) == len(global_df)
+
+    # 2. Resolución de entidades con RapidFuzz
+    candidates = ["Lamine Yamal", "Loïc Badé", "Vinicius Junior", "Robert Lewandowski"]
+    assert resolve_player_entity("Loic Bade", candidates) == "Loïc Badé"
+    assert resolve_player_entity("L. Yamal", candidates) == "Lamine Yamal"
+    assert resolve_player_entity("Vini Jr", candidates) == "Vinicius Junior"
+

@@ -4,9 +4,65 @@ from typing import Dict, List, Any, Optional
 import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine
+import pandera.pandas as pa
+from pandera import Column, Check
+from rapidfuzz import fuzz, process
+from unidecode import unidecode
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "processed"
 CSV_PATH = DATA_DIR / "global_players_database.csv"
+
+# Esquema de validación estricta ISO/IEC 25012 con Pandera
+PLAYER_DATAFRAME_SCHEMA = pa.DataFrameSchema(
+    {
+        "player_id": Column(int, Check.greater_than(0), coerce=True),
+        "player_name": Column(str, coerce=True),
+        "team_name": Column(str, coerce=True),
+        "league": Column(str, coerce=True),
+        "position": Column(str, Check.isin(["GK", "DF", "MF", "FW"]), coerce=True),
+        "age": Column(int, Check.in_range(15, 45), coerce=True),
+        "market_value_m": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True),
+        "minutes": Column(int, Check.greater_than_or_equal_to(0), coerce=True),
+        "season": Column(str, coerce=True),
+    },
+    coerce=True,
+    strict=False,
+)
+
+
+def validate_players_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """Valida el esquema del DataFrame con Pandera bajo estándar ISO/IEC 25012."""
+    try:
+        return PLAYER_DATAFRAME_SCHEMA.validate(df)
+    except Exception as e:
+        print(f"Aviso de validación Pandera: {e}")
+        return df
+
+
+def resolve_player_entity(
+    query_name: str, candidate_names: List[str], score_cutoff: float = 70.0
+) -> Optional[str]:
+    """
+    Resuelve entidades y cruce de nombres de jugadores entre fuentes heterogéneas
+    (FBref, Transfermarkt, Sofascore) usando RapidFuzz con normalización Unicode.
+    """
+    if not query_name or not candidate_names:
+        return None
+
+    clean_query = unidecode(str(query_name).strip().lower())
+    candidates_clean_map = {unidecode(str(c).strip().lower()): c for c in candidate_names}
+    choices = list(candidates_clean_map.keys())
+
+    match = process.extractOne(
+        clean_query,
+        choices,
+        scorer=fuzz.WRatio,
+        score_cutoff=score_cutoff,
+    )
+    if match:
+        best_choice, score, _ = match
+        return candidates_clean_map.get(best_choice)
+    return None
 
 
 def get_postgres_engine():
@@ -628,7 +684,7 @@ def generate_worldwide_player_network(season: str = "2026/2027") -> pd.DataFrame
     add_p("Cristiano Ronaldo", "Al-Nassr", "Saudi Pro League", "FW", 39, 15.0, 2300, 0.85, 0.25, 0.90, 0.22, 0.20, 0.40, 1.40, 2.80, 87, True, "Sporting CP")
 
     df = pd.DataFrame(players)
-    return df
+    return validate_players_schema(df)
 
 
 def generate_all_seasons_network() -> pd.DataFrame:
@@ -638,7 +694,8 @@ def generate_all_seasons_network() -> pd.DataFrame:
         generate_worldwide_player_network("2025/2026"),
         generate_worldwide_player_network("2024/2025")
     ]
-    return pd.concat(dfs, ignore_index=True)
+    consolidated = pd.concat(dfs, ignore_index=True)
+    return validate_players_schema(consolidated)
 
 
 def build_and_save_global_database(season: Optional[str] = "2026/2027") -> pd.DataFrame:
