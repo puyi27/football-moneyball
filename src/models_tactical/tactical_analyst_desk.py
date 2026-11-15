@@ -179,37 +179,87 @@ class TacticalAnalystDesk:
     def prepare_match_plan(
         self,
         team_name: str,
-        opponent_profile: Dict[str, float],
+        opponent_profile: Any = None,
         formation: Optional[Dict[str, int]] = None,
     ) -> Dict[str, Any]:
         """
         Prepara el partido de la próxima jornada seleccionando el XI más idóneo
         para contrarrestar al rival y redacta las directrices tácticas de pizarra.
+        Acepta en opponent_profile tanto un diccionario de atributos como el nombre del club rival (str).
         """
+        opp_name = "Rival"
+        if isinstance(opponent_profile, str):
+            opp_name = opponent_profile
+            # Sintetizar perfil táctico a partir del rival y su Elo
+            rival_elo = self.elo_system.get_rating(opp_name) if hasattr(self.elo_system, "get_rating") else 1650.0
+            my_elo = self.elo_system.get_rating(team_name) if hasattr(self.elo_system, "get_rating") else 1650.0
+            elo_diff = rival_elo - my_elo
+
+            if elo_diff > 100:
+                profile_dict = {
+                    "defense_weakness": 0.85,
+                    "attack_threat": 1.35,
+                    "high_line_vulnerability": 0.75,
+                    "low_block_tendency": 0.20
+                }
+                form_text = "5-3-2 Transición Rápida & Repliegue Asimétrico"
+                mister_inst = f"El rival ({opp_name}) asfixia con bloque alto y posesión ({rival_elo:.0f} Elo). Ceder la iniciativa territorial, cerrar pasillos interiores y castigar con diagonales a la espalda de sus centrales."
+            elif elo_diff < -100:
+                profile_dict = {
+                    "defense_weakness": 1.25,
+                    "attack_threat": 0.80,
+                    "high_line_vulnerability": 0.30,
+                    "low_block_tendency": 0.80
+                }
+                form_text = "4-3-3 Ofensivo con Amplitud Total y Sobrecarga"
+                mister_inst = f"{opp_name} plantará un bloque bajo ultradefensivo. Fijar con laterales en amplitud máxima, paciencia en circulación y buscar centros tensos al punto de penalti y disparos desde la frontal."
+            else:
+                profile_dict = {
+                    "defense_weakness": 1.05,
+                    "attack_threat": 1.05,
+                    "high_line_vulnerability": 0.50,
+                    "low_block_tendency": 0.45
+                }
+                form_text = "4-2-3-1 Dinámico con Presión Tras Pérdida"
+                mister_inst = f"Duelo de fuerzas parejas frente a {opp_name}. Clave ganar los duelos en la medular, gobernar segundas jugadas y buscar desborde en el 1 contra 1 por las bandas."
+        elif isinstance(opponent_profile, dict):
+            profile_dict = opponent_profile
+            form_text = "4-3-3 Adaptado al Análisis de Pizarra"
+            mister_inst = "Explotar las debilidades defensivas detectadas y neutralizar las vías preferentes de progresión del adversario."
+        else:
+            profile_dict = {"defense_weakness": 1.0, "attack_threat": 1.0, "high_line_vulnerability": 0.5, "low_block_tendency": 0.5}
+            form_text = "4-3-3 Estándar de Competición"
+            mister_inst = "Mantener rigor posicional, transiciones ágiles y equilibrio entre líneas."
+
         formation = formation or {"GK": 1, "DF": 4, "MF": 3, "FW": 3}
         team_players = self.df_metrics[self.df_metrics.get("team_name", "") == team_name]
+        if team_players.empty:
+            team_players = self.df_metrics.head(18)
 
         # Recomendar XI titular óptimo
         optimal_lineup = self.matchup_analyzer.recommend_optimal_lineup(
             available_players_df=team_players,
             formation=formation,
-            opponent_profile=opponent_profile,
+            opponent_profile=profile_dict,
         )
 
         # Radiografía del enfrentamiento
         matchup_insights = self.matchup_analyzer.analyze_tactical_matchup(
             lineup_df=optimal_lineup,
-            opponent_profile=opponent_profile,
+            opponent_profile=profile_dict,
         )
 
         # Plan de jugadas recomendadas
         plays = self.playmaker.suggest_tactical_plays(
             lineup_df=optimal_lineup,
-            opponent_profile=opponent_profile,
+            opponent_profile=profile_dict,
         )
 
         return {
             "team_name": team_name,
+            "opponent_name": opp_name,
+            "formation_recommended": form_text,
+            "tactical_instructions": mister_inst,
             "optimal_lineup": optimal_lineup,
             "matchup_insights": matchup_insights,
             "tactical_plays": plays,

@@ -226,3 +226,72 @@ class MatchScenarioSimulator:
             })
 
         return flaws
+
+    def simulate_match_timeline(
+        self,
+        home_team: str,
+        away_team: str,
+        base_elo_home: float = 1600.0,
+        base_elo_away: float = 1600.0,
+        seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Simulación estocástica minuto a minuto (1-90) para el gemelo digital (Digital Twin).
+        Calcula probabilidades de victoria progresivas, métricas xG acumuladas y mapa de ocasiones.
+        """
+        if seed is not None:
+            np.random.seed(seed)
+
+        # Ratio relativo de Elo
+        elo_diff = (base_elo_home - base_elo_away) / 400.0
+        lam_home = max(0.5, 1.45 + (elo_diff * 0.5))
+        lam_away = max(0.4, 1.15 - (elo_diff * 0.4))
+
+        events_raw, timeline_df, score_str = self._simulate_90_minutes(
+            home_team, away_team, lam_home, lam_away, "Ataque Posicional", "Bloque Medio y Salida"
+        )
+
+        h_g, a_g = [int(s.strip()) for s in score_str.split("-")]
+
+        events = []
+        cur_home_goals = 0
+        cur_away_goals = 0
+        base_p_win = 1.0 / (1.0 + 10.0 ** (-elo_diff))
+
+        for ev in events_raw:
+            if ev.get("is_goal", False):
+                if ev["team"] == home_team:
+                    cur_home_goals += 1
+                else:
+                    cur_away_goals += 1
+                event_type = "Gol ⚽"
+            else:
+                event_type = "Remate Clave 🎯"
+
+            goal_diff = cur_home_goals - cur_away_goals
+            min_left = (90 - ev["minute"]) / 90.0
+            dyn_prob = np.clip(base_p_win + (goal_diff * 0.28) * (1.0 - min_left * 0.4), 0.02, 0.98)
+
+            events.append({
+                "minute": int(ev["minute"]),
+                "team": ev["team"],
+                "event_type": event_type,
+                "xg_value": round(float(ev["xg"]), 2),
+                "win_prob_home": f"{round(float(dyn_prob * 100), 1)}%",
+                "win_prob_home_float": round(float(dyn_prob), 4),
+                "desc": ev.get("desc", ""),
+                "zone": ev.get("zone", "")
+            })
+
+        total_xg_home = round(float(timeline_df["xg_home"].iloc[-1]) if not timeline_df.empty else 1.2, 2)
+        total_xg_away = round(float(timeline_df["xg_away"].iloc[-1]) if not timeline_df.empty else 0.9, 2)
+
+        return {
+            "matchup": f"{home_team} vs {away_team}",
+            "final_score": (h_g, a_g),
+            "score_string": score_str,
+            "total_xg_home": total_xg_home,
+            "total_xg_away": total_xg_away,
+            "events": events,
+            "timeline_df": timeline_df
+        }

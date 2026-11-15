@@ -29,8 +29,12 @@ class TeamProfiler:
         "Sporting CP": {"possession_pct": 61.0, "pressing_intensity": 8.4, "verticality": 7.9, "style": "Presión Tras Pérdida y Verticalidad Hacia Delantero Referencia", "preferred_channel": "Espacio para Gyökeres"},
     }
 
-    def __init__(self, df_players: pd.DataFrame, elo_system: Optional[EloSystem] = None):
-        self.df = df_players.copy()
+    def __init__(self, df_players: Optional[pd.DataFrame] = None, elo_system: Optional[EloSystem] = None):
+        if df_players is not None and not df_players.empty:
+            self.df = df_players.copy()
+        else:
+            from src.data.global_player_database import load_global_players
+            self.df = load_global_players()
         self.elo_system = elo_system or EloSystem()
 
     def get_team_overview(self, team_name: str) -> Dict[str, Any]:
@@ -70,15 +74,21 @@ class TeamProfiler:
                 "urgency": "Alta" if vet["age"] >= 33 else "Media"
             })
 
+        # Conteo de canteranos en el primer equipo
+        acad_count = int((team_players["is_academy"] == True).sum()) if "is_academy" in team_players.columns else 0
+
         return {
             "team_name": team_name,
-            "league": team_players.iloc[0].get("league", "LaLiga"),
+            "league": team_players.iloc[0].get("league", "LaLiga") if not team_players.empty else "LaLiga",
             "elo_rating": round(float(current_elo), 1),
             "alpha_offensive_power": alpha_est,
             "beta_defensive_leak": beta_est,
             "total_market_value_m": round(total_market_value, 1),
             "avg_squad_age": round(avg_age, 1),
+            "avg_age": round(avg_age, 1),
             "total_squad_size": len(team_players),
+            "squad_size": len(team_players),
+            "academy_players_count": acad_count,
             "tactical_adn": tactics,
             "aging_renewals_needed": aging_positions,
             "squad_roster": team_players.sort_values(by="minutes", ascending=False)

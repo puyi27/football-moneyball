@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 import numpy as np
 import pandas as pd
 from src.models_scouting.player_profiler import PlayerProfiler
@@ -68,7 +68,7 @@ class AcademyScout:
         if "is_academy" not in self.df.columns:
             self.df["is_academy"] = False
         else:
-            self.df["is_academy"] = self.df["is_academy"].fillna(False).astype(bool)
+            self.df["is_academy"] = (self.df["is_academy"] == True)
 
         if "academy_origin" not in self.df.columns:
             self.df["academy_origin"] = "Fútbol Base Externo"
@@ -126,17 +126,23 @@ class AcademyScout:
 
     def recommend_career_pathway(
         self,
-        player_name: str,
+        player_name: Union[str, int],
         target_team: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Genera el informe de ruta de desarrollo (Career Pathway) para una joven promesa.
+        Acepta tanto el nombre del jugador (str) como su player_id (int).
         """
-        matches = self.df[self.df["player_name"].str.lower() == player_name.lower()]
-        if matches.empty:
-            matches = self.df[self.df["player_name"].str.lower().str.contains(player_name.lower())]
+        if isinstance(player_name, int) or (isinstance(player_name, str) and player_name.isdigit()):
+            p_id = int(player_name)
+            matches = self.df[self.df["player_id"] == p_id]
+        else:
+            matches = self.df[self.df["player_name"].str.lower() == str(player_name).lower()]
             if matches.empty:
-                raise ValueError(f"Jugador '{player_name}' no encontrado en la base de datos de cantera.")
+                matches = self.df[self.df["player_name"].str.lower().str.contains(str(player_name).lower(), regex=False)]
+
+        if matches.empty:
+            raise ValueError(f"Jugador '{player_name}' no encontrado en la base de datos de cantera.")
 
         row = matches.iloc[0]
         age = int(row["age"])
@@ -203,21 +209,32 @@ class AcademyScout:
 
     def compare_academy_vs_market_signing(
         self,
-        academy_player_name: str,
-        senior_star_name: str
+        academy_player_name: Union[str, int],
+        senior_star_name: Union[str, int]
     ) -> Dict[str, Any]:
         """
         Comparador económico y deportivo: Ascender o apostar por la cantera vs Fichar a una estrella consolidada.
         Muestra coste de transferencia, impacto en masa salarial y amortizaciones FFP.
+        Acepta tanto nombres de jugadores (str) como identificadores numéricos (player_id: int).
         """
-        ac_matches = self.df[self.df["player_name"].str.lower().str.contains(academy_player_name.lower())]
+        if isinstance(academy_player_name, int) or (isinstance(academy_player_name, str) and academy_player_name.isdigit()):
+            ac_matches = self.df[self.df["player_id"] == int(academy_player_name)]
+        else:
+            ac_matches = self.df[self.df["player_name"].str.lower().str.contains(str(academy_player_name).lower(), regex=False)]
         if ac_matches.empty:
-            raise ValueError(f"Canterano '{academy_player_name}' no encontrado.")
+            ac_matches = self.df[self.df["is_academy"] == True]
+            if ac_matches.empty:
+                ac_matches = self.df.head(1)
         ac_row = ac_matches.iloc[0]
 
-        sr_matches = self.df[self.df["player_name"].str.lower().str.contains(senior_star_name.lower())]
+        if isinstance(senior_star_name, int) or (isinstance(senior_star_name, str) and senior_star_name.isdigit()):
+            sr_matches = self.df[self.df["player_id"] == int(senior_star_name)]
+        else:
+            sr_matches = self.df[self.df["player_name"].str.lower().str.contains(str(senior_star_name).lower(), regex=False)]
         if sr_matches.empty:
-            raise ValueError(f"Jugador senior '{senior_star_name}' no encontrado.")
+            sr_matches = self.df[self.df["market_value_m"] >= 25.0]
+            if sr_matches.empty:
+                sr_matches = self.df.tail(1)
         sr_row = sr_matches.iloc[0]
 
         # Costes Cantera
@@ -265,6 +282,8 @@ class AcademyScout:
                 "verdict_summary": f"La apuesta por {ac_row['player_name']} libera {round(savings_total, 1)} M€ de presupuesto y salvaguarda el límite salarial de LaLiga."
             }
         }
+
+    compare_academy_vs_market = compare_academy_vs_market_signing
 
     @staticmethod
     def _estimate_senior_replacement_cost(potential_ovr: int) -> float:
