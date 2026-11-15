@@ -14,10 +14,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 from sqlalchemy import create_engine
 
-# Importación de la arquitectura analítica (Fases 3, 4, 5, 6, 7 y 8)
+# Importación de la arquitectura analítica (Módulos de Scouting, Táctica y Datos)
 from src.data.real_dataset_loader import load_real_players_df
 from src.data.global_player_database import load_global_players, sync_global_database_to_postgres
 from src.data.football_api_connector import FootballAPIConnector
+from src.data.advanced_sources_hub import MasterAnalyticsDataHub
 from src.models_scouting.player_profiler import PlayerProfiler
 from src.models_analytics.team_profiler import TeamProfiler
 from src.models_scouting.squad_diagnostics import SquadDiagnostics
@@ -32,13 +33,87 @@ from src.models_tactical.tactical_analyst_desk import TacticalAnalystDesk
 from src.models_tactical.match_scenario_simulator import MatchScenarioSimulator
 
 
-# 1. Configuración de página
+# 1. Configuración de página y estética profesional
 st.set_page_config(
-    page_title="Football Moneyball AI - Virtual Analyst Desk",
+    page_title="Football Moneyball AI — Virtual Analyst Desk (TFM)",
     page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Estilo CSS profesional adaptado a analítica deportiva de élite
+st.markdown("""
+<style>
+    /* Estilo general y paleta deportiva */
+    .stApp {
+        background-color: #0b0f19;
+        color: #f1f5f9;
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    }
+    
+    /* Encabezado ejecutivo */
+    .executive-header {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+        border: 1px solid #334155;
+        border-radius: 14px;
+        padding: 24px 28px;
+        margin-bottom: 24px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .executive-title {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        color: #ffffff;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .executive-subtitle {
+        color: #94a3b8;
+        font-size: 14px;
+        margin-top: 6px;
+        margin-bottom: 16px;
+    }
+    
+    /* Chips de estado */
+    .status-badge-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .status-badge {
+        font-size: 12px;
+        font-weight: 600;
+        padding: 5px 12px;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .badge-green { background-color: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .badge-blue { background-color: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+    .badge-purple { background-color: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+    .badge-gold { background-color: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+
+    /* Tarjetas de métricas */
+    div[data-testid="stMetricValue"] {
+        font-weight: 800;
+        color: #38bdf8;
+    }
+    
+    /* Contenedores tipo Card */
+    .glass-card {
+        background: rgba(30, 41, 59, 0.7);
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    }
+</style>
+""", unsafe_allow_html=True)
+
 
 # 2. Conexión de base de datos
 @st.cache_resource
@@ -54,27 +129,32 @@ def get_players_database() -> pd.DataFrame:
     """Carga los datos de futbolistas reales de la red mundial con sus métricas y valores de mercado."""
     return load_global_players()
 
+# 4. Instancia singleton del Hub de datos avanzado
+@st.cache_resource
+def get_advanced_hub() -> MasterAnalyticsDataHub:
+    return MasterAnalyticsDataHub()
 
-# 4. Función gráfica para dibujar un campo de fútbol 2D con mapa de calor
+
+# 5. Dibuja un campo reglamentario con mapa de calor de influencia
 def draw_tactical_pitch_heatmap(heatmap_df: pd.DataFrame, player_name: str, position: str) -> go.Figure:
     """Dibuja un terreno de juego reglamentario (105x68m) con la densidad de actividad del jugador."""
     fig = go.Figure()
 
     # Césped de fútbol (Verde profesional)
-    fig.add_shape(type="rect", x0=0, y0=0, x1=105, y1=68, fillcolor="#132c1b", line=dict(color="#ffffff", width=2))
+    fig.add_shape(type="rect", x0=0, y0=0, x1=105, y1=68, fillcolor="#0d2818", line=dict(color="#4ade80", width=1.5))
 
     # Línea de medio campo y círculo central
-    fig.add_shape(type="line", x0=52.5, y0=0, x1=52.5, y1=68, line=dict(color="#ffffff", width=2))
-    fig.add_shape(type="circle", x0=52.5 - 9.15, y0=34 - 9.15, x1=52.5 + 9.15, y1=34 + 9.15, line=dict(color="#ffffff", width=2))
+    fig.add_shape(type="line", x0=52.5, y0=0, x1=52.5, y1=68, line=dict(color="#ffffff", width=1.5))
+    fig.add_shape(type="circle", x0=52.5 - 9.15, y0=34 - 9.15, x1=52.5 + 9.15, y1=34 + 9.15, line=dict(color="#ffffff", width=1.5))
     fig.add_shape(type="circle", x0=52.2, y0=33.7, x1=52.8, y1=34.3, fillcolor="#ffffff", line=dict(color="#ffffff"))
 
     # Áreas de penal
-    fig.add_shape(type="rect", x0=0, y0=13.84, x1=16.5, y1=54.16, line=dict(color="#ffffff", width=2))
-    fig.add_shape(type="rect", x0=88.5, y0=13.84, x1=105, y1=54.16, line=dict(color="#ffffff", width=2))
+    fig.add_shape(type="rect", x0=0, y0=13.84, x1=16.5, y1=54.16, line=dict(color="#ffffff", width=1.5))
+    fig.add_shape(type="rect", x0=88.5, y0=13.84, x1=105, y1=54.16, line=dict(color="#ffffff", width=1.5))
 
     # Áreas pequeñas de meta
-    fig.add_shape(type="rect", x0=0, y0=24.84, x1=5.5, y1=43.16, line=dict(color="#ffffff", width=2))
-    fig.add_shape(type="rect", x0=99.5, y0=24.84, x1=105, y1=43.16, line=dict(color="#ffffff", width=2))
+    fig.add_shape(type="rect", x0=0, y0=24.84, x1=5.5, y1=43.16, line=dict(color="#ffffff", width=1.5))
+    fig.add_shape(type="rect", x0=99.5, y0=24.84, x1=105, y1=43.16, line=dict(color="#ffffff", width=1.5))
 
     # Puntos de penalti
     fig.add_shape(type="circle", x0=10.7, y0=33.7, x1=11.3, y1=34.3, fillcolor="#ffffff", line=dict(color="#ffffff"))
@@ -84,11 +164,11 @@ def draw_tactical_pitch_heatmap(heatmap_df: pd.DataFrame, player_name: str, posi
     fig.add_trace(go.Histogram2dContour(
         x=heatmap_df["x"],
         y=heatmap_df["y"],
-        colorscale="Hot",
-        reversescale=True,
+        colorscale="Viridis",
+        reversescale=False,
         showscale=False,
-        ncontours=15,
-        opacity=0.68,
+        ncontours=16,
+        opacity=0.72,
         contours=dict(coloring="heatmap")
     ))
 
@@ -97,33 +177,100 @@ def draw_tactical_pitch_heatmap(heatmap_df: pd.DataFrame, player_name: str, posi
         x=heatmap_df["x"],
         y=heatmap_df["y"],
         mode="markers",
-        marker=dict(size=4, color="#ffcc00", opacity=0.45),
+        marker=dict(size=4, color="#facc15", opacity=0.5),
         name="Acciones / Toques"
     ))
 
     fig.update_layout(
-        title=f"Mapa de Calor de Zonas de Influencia: {player_name} ({position})",
+        title=dict(text=f"Mapa de Calor de Zonas de Influencia: {player_name} ({position})", font=dict(color="#ffffff", size=14)),
         xaxis=dict(range=[-2, 107], showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(range=[-2, 70], showgrid=False, zeroline=False, showticklabels=False, scaleanchor="x", scaleratio=1),
         margin=dict(l=10, r=10, t=40, b=10),
         height=380,
         showlegend=False,
-        paper_bgcolor="#0e1117",
-        plot_bgcolor="#0e1117"
+        paper_bgcolor="#0b0f19",
+        plot_bgcolor="#0b0f19"
+    )
+
+    return fig
+
+
+# 6. Dibuja un mapa de tiros tiro a tiro sobre media cancha (Understat Shot Map)
+def draw_understat_shot_map(df_shots: pd.DataFrame, title: str = "Mapa Tiro a Tiro (xG Shot Chart)") -> go.Figure:
+    """Dibuja un medio campo reglamentario con los remates registrados y su valoración xG."""
+    fig = go.Figure()
+
+    # Medio campo de ataque (x de 52.5 a 105, y de 0 a 68)
+    fig.add_shape(type="rect", x0=52.5, y0=0, x1=105, y1=68, fillcolor="#0d2818", line=dict(color="#4ade80", width=1.5))
+    fig.add_shape(type="line", x0=52.5, y0=0, x1=52.5, y1=68, line=dict(color="#ffffff", width=1.5))
+    fig.add_shape(type="rect", x0=88.5, y0=13.84, x1=105, y1=54.16, line=dict(color="#ffffff", width=1.5))
+    fig.add_shape(type="rect", x0=99.5, y0=24.84, x1=105, y1=43.16, line=dict(color="#ffffff", width=1.5))
+    fig.add_shape(type="circle", x0=93.7, y0=33.7, x1=94.3, y1=34.3, fillcolor="#ffffff", line=dict(color="#ffffff"))
+    # Portería rival
+    fig.add_shape(type="rect", x0=105, y0=30.34, x1=107, y1=37.66, fillcolor="#334155", line=dict(color="#ffffff", width=2))
+
+    color_map = {
+        "Goal": "#00ff87",        # Verde neón para goles
+        "SavedShot": "#f59e0b",   # Ámbar para tiros a puerta atajados
+        "BlockedShot": "#a855f7", # Violeta para tiros bloqueados
+        "MissedShots": "#ef4444"  # Rojo para disparos fuera
+    }
+
+    for res, c in color_map.items():
+        subset = df_shots[df_shots["result"] == res]
+        if not subset.empty:
+            fig.add_trace(go.Scatter(
+                x=subset["x"],
+                y=subset["y"],
+                mode="markers",
+                marker=dict(
+                    size=subset["xg"] * 32 + 6,
+                    color=c,
+                    line=dict(width=1, color="#ffffff"),
+                    opacity=0.85
+                ),
+                name=f"{res} ({len(subset)})",
+                text=[f"<b>{row['player']}</b><br>Resultado: {row['result']}<br>xG: {row['xg']}<br>Situación: {row['situation']}<br>Zona: ({row['x']:.1f}, {row['y']:.1f})" for _, row in subset.iterrows()],
+                hoverinfo="text"
+            ))
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(color="#ffffff", size=15)),
+        xaxis=dict(range=[50, 108], showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(range=[-2, 70], showgrid=False, zeroline=False, showticklabels=False, scaleanchor="x", scaleratio=1),
+        margin=dict(l=10, r=10, t=40, b=10),
+        height=400,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, font=dict(color="#f1f5f9")),
+        paper_bgcolor="#0b0f19",
+        plot_bgcolor="#0b0f19"
     )
 
     return fig
 
 
 def main():
-    st.sidebar.title("⚽ Football Moneyball AI")
-    st.sidebar.markdown("**Virtual Analyst Desk & Decision Support System**")
-    st.sidebar.caption("Herramienta Profesional de Inteligencia Deportiva para Clubes (TFM)")
-    st.sidebar.markdown("---")
+    # Encabezado ejecutivo superior unificado
+    st.markdown("""
+    <div class="executive-header">
+        <div class="executive-title">
+            ⚽ FOOTBALL MONEYBALL AI — VIRTUAL ANALYST DESK
+        </div>
+        <div class="executive-subtitle">
+            Plataforma Integral de Analítica Avanzada, Modelos Tácticos y Apoyo a la Decisión para Dirección Deportiva (TFM)
+        </div>
+        <div class="status-badge-container">
+            <span class="status-badge badge-green">🟢 PostgreSQL 16 Synced</span>
+            <span class="status-badge badge-blue">⚡ Apache Spark 3.5.0 Active</span>
+            <span class="status-badge badge-purple">📡 7 Data Engines Ready</span>
+            <span class="status-badge badge-gold">🏆 LaLiga 2024/2025 Official Squads</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     df_players = get_players_database()
+    hub = get_advanced_hub()
 
-    # Inicializar sistema Elo de calibración
+    # Inicializar sistema Elo de calibración competitiva
     elo = EloSystem()
     elo.ratings.update({
         "Real Madrid": 1840.0, "Barcelona": 1820.0, "Atletico Madrid": 1740.0,
@@ -141,27 +288,34 @@ def main():
     academy_scout = AcademyScout(df_players)
     scenario_sim = MatchScenarioSimulator()
 
-    # Menú Principal de Herramientas del Analista
+    # Menú Principal de Herramientas del Analista en Barra Lateral
+    st.sidebar.markdown("### 🧭 Panel de Navegación")
     menu = st.sidebar.radio(
-        "Módulos del Analista:",
+        "Módulos Operativos:",
         [
-            "1. Ficha 360° del Jugador (FIFA & Clones K-NN)",
-            "2. Centro de Mando del Club (ADN Táctico & Plantilla)",
-            "3. Radar de Gangas ('Moneyball Index')",
-            "4. Ojeador de Canteras y Wonderkids (Talento Joven & Ahorro)",
-            "5. Simulador de Partido en Vivo (Digital Twin estilo NFL)",
-            "6. Laboratorio de Fichajes ('What-If' & Monte Carlo)",
-            "7. Preparador de Partido (Pizarra vs Rival)",
-            "8. Dossier Ejecutivo para Directiva",
-            "9. Conector de APIs en Vivo & Red Mundial"
+            "1. 👤 Ficha Técnica 360° & EA Sports FUT Card",
+            "2. 📋 Centro de Mando del Club & Plantillas Oficiales",
+            "3. 💰 Radar de Gangas Moneyball & Transfermarkt",
+            "4. 🌟 Ojeador de Canteras & Wonderkids Sub-21",
+            "5. 🎮 Digital Twin: Simulador de Partido en Vivo",
+            "6. 🔬 Laboratorio Táctico & Pizarra vs Rival",
+            "7. 📑 Dossier Ejecutivo para la Directiva",
+            "8. ⚡ Hub de Big Data, Librerías Avanzadas & APIs (TFM)"
         ]
     )
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("#### 📊 Métricas de la Plataforma")
+    st.sidebar.caption(f"• **Futbolistas en Red:** {len(df_players):,}")
+    st.sidebar.caption(f"• **Ligas Monitorizadas:** {df_players['league'].nunique()}")
+    st.sidebar.caption(f"• **Clubes Oficiales:** {df_players['team_name'].nunique()}")
+    st.sidebar.caption("• **Fuentes Activas:** 7 Motores de Datos")
 
     # =========================================================================
     # VISTA 1: FICHA 360° DEL JUGADOR (FIFA CARD, RADAR, MAPA DE CALOR, CLONES)
     # =========================================================================
-    if menu == "1. Ficha 360° del Jugador (FIFA & Clones K-NN)":
-        st.title("👤 Ficha Técnica 360° del Futbolista")
+    if menu == "1. 👤 Ficha Técnica 360° & EA Sports FUT Card":
+        st.subheader("👤 Ficha Técnica Integral 360° del Futbolista")
         st.markdown("Radiografía individual estilo EA Sports / FIFA FUT con atributos 1-99, mapa de calor táctico y detección de futbolistas análogos (Clones K-NN).")
 
         col_sel1, col_sel2 = st.columns([1, 2])
@@ -198,593 +352,382 @@ def main():
                 <div style="font-size: 52px; font-weight: 900; color: #f5d77f; line-height: 1;">{card['OVR']}</div>
                 <div style="font-size: 18px; font-weight: bold; letter-spacing: 2px; color: #ffffff;">{card['position']} | {card['team_name']}</div>
                 <hr style="border-color: #d4af37; margin: 12px 0;">
-                <div style="font-size: 24px; font-weight: 800; color: #ffffff;">{card['player_name']}</div>
-                <div style="font-size: 14px; color: #cccccc; margin-bottom: 14px;">{card['league']} • {card['age']} años • {card['market_value_m']} M€</div>
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 16px; font-weight: bold;">
-                    <div><span style="color: #f5d77f;">PAC</span> {card['PAC']}</div>
-                    <div><span style="color: #f5d77f;">SHO</span> {card['SHO']}</div>
-                    <div><span style="color: #f5d77f;">PAS</span> {card['PAS']}</div>
-                    <div><span style="color: #f5d77f;">DRI</span> {card['DRI']}</div>
-                    <div><span style="color: #f5d77f;">DEF</span> {card['DEF']}</div>
-                    <div><span style="color: #f5d77f;">PHY</span> {card['PHY']}</div>
+                <h3 style="margin: 0; color: #ffffff;">{card['player_name']}</h3>
+                <p style="color: #c5a059; margin: 4px 0 16px 0; font-size: 14px;">{card['league']} | {card['age']} Años</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-weight: bold; font-size: 16px; text-align: left; padding: 0 10px;">
+                    <div>PAC <span style="color: #f5d77f; float: right;">{card['PAC']}</span></div>
+                    <div>DRI <span style="color: #f5d77f; float: right;">{card['DRI']}</span></div>
+                    <div>SHO <span style="color: #f5d77f; float: right;">{card['SHO']}</span></div>
+                    <div>DEF <span style="color: #f5d77f; float: right;">{card['DEF']}</span></div>
+                    <div>PAS <span style="color: #f5d77f; float: right;">{card['PAS']}</span></div>
+                    <div>PHY <span style="color: #f5d77f; float: right;">{card['PHY']}</span></div>
+                </div>
+                <div style="margin-top: 16px; background-color: rgba(0,0,0,0.4); padding: 8px; border-radius: 8px; font-size: 13px; color: #f5d77f;">
+                    💰 Valor de Mercado: <b>{card['market_value_m']} M€</b>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            st.write("")
-            m1, m2 = st.columns(2)
-            m1.metric("Goles Esperados p90", f"{player_data.get('xg_p90', 0):.2f}")
-            m2.metric("Asistencias Esp. p90", f"{player_data.get('xa_p90', 0):.2f}")
-
         with col_radar:
-            # Gráfico de Radar Hexagonal
-            categories = ["PAC (Ritmo)", "SHO (Tiro)", "PAS (Pase)", "DRI (Regate)", "DEF (Defensa)", "PHY (Físico)"]
-            vals = [card["PAC"], card["SHO"], card["PAS"], card["DRI"], card["DEF"], card["PHY"]]
-
-            fig_radar = go.Figure()
-            fig_radar.add_trace(go.Scatterpolar(
-                r=vals + [vals[0]],
-                theta=categories + [categories[0]],
-                fill="toself",
-                fillcolor="rgba(212, 175, 55, 0.35)",
-                line=dict(color="#d4af37", width=3),
-                name=f"{card['player_name']} (OVR {card['OVR']})"
+            radar_df = pd.DataFrame(dict(
+                r=[card['PAC'], card['SHO'], card['PAS'], card['DRI'], card['DEF'], card['PHY']],
+                theta=['PAC (Ritmo)', 'SHO (Tiro)', 'PAS (Pase)', 'DRI (Regate)', 'DEF (Defensa)', 'PHY (Físico)']
             ))
+            fig_radar = px.line_polar(radar_df, r='r', theta='theta', line_close=True, range_r=[0, 100])
+            fig_radar.update_traces(fill='toself', fillcolor='rgba(212, 175, 55, 0.45)', line=dict(color='#d4af37', width=2.5))
             fig_radar.update_layout(
-                polar=dict(
-                    radialaxis=dict(visible=True, range=[40, 100], color="#aaaaaa"),
-                    angularaxis=dict(color="#ffffff")
-                ),
-                showlegend=True,
-                paper_bgcolor="#0e1117",
-                plot_bgcolor="#0e1117",
-                height=360,
-                margin=dict(l=30, r=30, t=30, b=30)
+                title=f"Rueda Poligonal de Rendimiento: {selected_player}",
+                polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                margin=dict(l=30, r=30, t=40, b=30),
+                height=350,
+                paper_bgcolor="#0b0f19",
+                plot_bgcolor="#0b0f19"
             )
             st.plotly_chart(fig_radar, use_container_width=True)
 
         st.markdown("---")
 
-        # 2. MAPA DE CALOR TÁCTICO EN CAMPO REGLEMENTARIO
-        st.subheader("📍 Mapa de Calor y Zonas de Intervención en el Campo")
-        heatmap_coords = profiler.get_pitch_heatmap_data(player_data)
-        fig_pitch = draw_tactical_pitch_heatmap(heatmap_coords, card["player_name"], card["position"])
+        # 2. MAPA DE CALOR 2D REGLAMENTARIO
+        st.subheader("📍 Mapa de Calor y Zonas de Influencia en el Terreno de Juego")
+        st.caption("Distribución espacial basada en las acciones por 90 minutos y coordenadas tácticas del futbolista.")
+        heatmap_points = profiler.generate_pitch_heatmap(player_data)
+        fig_pitch = draw_tactical_pitch_heatmap(heatmap_points, selected_player, player_data["position"])
         st.plotly_chart(fig_pitch, use_container_width=True)
 
         st.markdown("---")
 
-        # 3. JUGADORES CLONES / GEMELOS (K-NN CON % SIMILITUD)
-        st.subheader("👯 Jugadores Gemelos / Clones en Europa (K-NN)")
-        st.markdown(f"Alternativas estadísticas más similares a **{card['player_name']}** en ligas europeas para optimizar presupuestos de fichaje:")
-
-        twins_df = profiler.find_player_twins(player_id=int(player_data["player_id"]), top_k=5)
+        # 3. CLONES SIMILARES (K-NN)
+        st.subheader(f"👥 Futbolistas Similares a {selected_player} (Clones K-NN)")
+        st.markdown("Algoritmo de Vecinos Más Cercanos en espacio multidimensional (xG, xA, acciones defensivas, pases progresivos y regates).")
+        twins_df = profiler.find_player_twins(selected_player, n_neighbors=5)
         if not twins_df.empty:
-            for _, twin in twins_df.iterrows():
-                with st.container():
-                    c_t1, c_t2, c_t3, c_t4 = st.columns([2, 1.2, 1.2, 1.2])
-                    c_t1.markdown(f"**{twin['player_name']}** ({twin['team_name']} • {twin['league']})  \n*{twin['position']} • {twin['age']} años*")
-                    c_t2.metric("Similitud Táctica", f"{twin['similarity_pct']}%")
-                    c_t3.metric("Valor Mercado", f"{twin['market_value_m']} M€")
-                    savings = twin['savings_vs_target_m']
-                    c_t4.metric("Diferencial Ahorro", f"{savings:+.1f} M€", delta=f"{savings:+.1f} M€" if savings > 0 else f"{savings:+.1f} M€")
-                    st.divider()
-        else:
-            st.info("No se encontraron suficientes futbolistas en la misma demarcación.")
-
-    # =========================================================================
-    # VISTA 2: CENTRO DE MANDO DEL CLUB (ADN TÁCTICO & PLANTILLA)
-    # =========================================================================
-    elif menu == "2. Centro de Mando del Club (ADN Táctico & Plantilla)":
-        st.title("🏟️ Centro de Mando del Club y ADN Táctico")
-        st.markdown("Diagnóstico integral del equipo: rating Elo, parámetros de fuerza ofensiva y defensiva, estilo táctico y pirámide de edad de la plantilla.")
-
-        laliga_teams = sorted(df_players[df_players["league"] == "LaLiga"]["team_name"].unique())
-        selected_club = st.selectbox("Seleccionar Club:", laliga_teams, index=laliga_teams.index("Sevilla FC") if "Sevilla FC" in laliga_teams else 0)
-
-        overview = team_profiler.get_team_overview(selected_club)
-        tactics = overview["tactical_adn"]
-
-        # Métricas generales del club
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Rating Elo Competitivo", f"{overview['elo_rating']} pts")
-        m2.metric("Poder Ofensivo (α)", f"{overview['alpha_offensive_power']:.2f}")
-        m3.metric("Fragilidad Defensiva (β)", f"{overview['beta_defensive_leak']:.2f}", delta_color="inverse")
-        m4.metric("Valor de Plantilla", f"{overview['total_market_value_m']} M€")
-
-        st.markdown("---")
-
-        c_adn1, c_adn2 = st.columns([1.5, 1.5])
-        with c_adn1:
-            st.subheader("🧬 ADN y Filosofía de Juego")
-            st.info(f"**Estilo Predominante:** {tactics['style']}")
-            st.write(f"**Ruta de Ataque Preferente:** {tactics['preferred_channel']}")
-            st.write(f"**Posesión Media Estimada:** {tactics['possession_pct']}%")
-            st.progress(tactics['possession_pct'] / 100.0)
-
-            st.write(f"**Intensidad de Presión:** {tactics['pressing_intensity']} / 10")
-            st.progress(tactics['pressing_intensity'] / 10.0)
-
-            st.write(f"**Verticalidad de Ataque:** {tactics['verticality']} / 10")
-            st.progress(tactics['verticality'] / 10.0)
-
-        with c_adn2:
-            st.subheader("⚠️ Alertas de Relevo Generacional (Veteranos >31a)")
-            aging = overview["aging_renewals_needed"]
-            if aging:
-                for a in aging:
-                    st.warning(f"🚨 **{a['player_name']}** ({a['position']}, {a['age']} años) • {a['minutes']} minutos jugados.  \n*Prioridad de fichaje en esta demarcación:* **{a['urgency']}**")
-            else:
-                st.success("✅ Plantilla joven y equilibrada sin sobrecarga crítica de veteranos.")
-
-        st.markdown("---")
-        st.subheader(f"📋 Plantilla Completa de {selected_club}")
-        roster = overview["squad_roster"][["player_name", "position", "age", "market_value_m", "minutes", "xg_p90", "xa_p90", "interceptions_p90"]]
-        st.dataframe(roster, use_container_width=True)
-
-    # =========================================================================
-    # VISTA 3: RADAR DE GANGAS ('MONEYBALL INDEX')
-    # =========================================================================
-    elif menu == "3. Radar de Gangas ('Moneyball Index')":
-        st.title("💡 Radar de Gangas: 'The Moneyball Index'")
-        st.markdown("Detecta futbolistas infravalorados cuyo rendimiento deportivo ($xG + xA + \\text{recuperaciones}$) supera exponencialmente su valor de mercado.")
-
-        c_f1, c_f2, c_f3 = st.columns(3)
-        with c_f1:
-            pos_filter = st.selectbox("Posición:", ["Todas", "FW", "MF", "DF"], index=0)
-        with c_f2:
-            max_mv = st.slider("Valor Máximo de Mercado (M€):", 5, 80, 30)
-        with c_f3:
-            max_age_bargain = st.slider("Edad Máxima:", 18, 30, 26)
-
-        bargains = profiler.calculate_moneyball_bargains(min_minutes=450, top_n=25)
-
-        if pos_filter != "Todas":
-            bargains = bargains[bargains["position"] == pos_filter]
-        bargains = bargains[(bargains["market_value_m"] <= max_mv) & (bargains["age"] <= max_age_bargain)]
-
-        st.subheader("🏆 Top Jugadores con Mayor Rentabilidad Deportiva")
-        st.dataframe(bargains.style.background_gradient(subset=["moneyball_ratio"], cmap="Greens"), use_container_width=True)
-
-    # =========================================================================
-    # VISTA 4: OJEADOR DE CANTERAS Y WONDERKIDS (TALENTO JOVEN & AHORRO)
-    # =========================================================================
-    elif menu == "4. Ojeador de Canteras y Wonderkids (Talento Joven & Ahorro)":
-        st.title("🌱 Ojeador de Canteras y Nuevas Promesas ('Wonderkids Radar')")
-        st.markdown("Herramienta de captación de perlas sub-21: evalúa el crecimiento de **OVR Actual vs Potencial**, diseña planes de carrera y calcula el ahorro millonario frente a fichajes senior en el mercado.")
-
-        col_c1, col_c2, col_c3 = st.columns([1.5, 1, 1])
-        with col_c1:
-            laliga_clubs = sorted(df_players[df_players["league"] == "LaLiga"]["team_name"].unique())
-            target_club = st.selectbox("Club de Referencia:", laliga_clubs, index=laliga_clubs.index("Real Madrid") if "Real Madrid" in laliga_clubs else 0)
-        with col_c2:
-            scout_mode = st.radio("Enfoque de Scouting:", ["🌱 Mi Cantera Propia", "🔍 Canteras Rivales y Europa"], horizontal=True)
-        with col_c3:
-            pos_choice = st.selectbox("Demarcación:", ["Todas", "FW", "MF", "DF"], index=0)
-
-        c_f1, c_f2 = st.columns(2)
-        with c_f1:
-            min_pot = st.slider("Potencial Mínimo (Potential OVR):", 80, 94, 85)
-        with c_f2:
-            max_age_scout = st.slider("Edad Máxima de la Promesa:", 16, 22, 21)
-
-        only_own = (scout_mode == "🌱 Mi Cantera Propia")
-        pos_arg = None if pos_choice == "Todas" else pos_choice
-
-        prospects = academy_scout.get_academy_prospects(
-            team_name=target_club,
-            only_own_academy=only_own,
-            min_potential=min_pot,
-            max_age=max_age_scout,
-            position=pos_arg
-        )
-
-        st.subheader(f"💎 Promesas Detectadas ({len(prospects)} jugadores)")
-        if not prospects.empty:
-            display_cols = ["player_name", "team_name", "academy_origin", "position", "age", "current_ovr", "potential_ovr", "growth_delta", "market_value_m", "projected_savings_m"]
             st.dataframe(
-                prospects[display_cols].style.background_gradient(subset=["potential_ovr", "growth_delta", "projected_savings_m"], cmap="YlGn"),
+                twins_df[["player_name", "team_name", "league", "position", "age", "market_value_m", "similarity_score", "potential_ovr"]]
+                .style.background_gradient(subset=["similarity_score"], cmap="Greens")
+                .format({"market_value_m": "{:.1f} M€", "similarity_score": "{:.1f}%", "potential_ovr": "{:.0f}"}),
+                use_container_width=True
+            )
+        else:
+            st.info("No se encontraron jugadores suficientes para el cálculo de similitud.")
+
+    # =========================================================================
+    # VISTA 2: CENTRO DE MANDO DEL CLUB (ADN TÁCTICO & PLANTILLAS OFICIALES)
+    # =========================================================================
+    elif menu == "2. 📋 Centro de Mando del Club & Plantillas Oficiales":
+        st.subheader("📋 Centro de Mando del Club y Gestión de Plantilla")
+        st.markdown("Diagnóstico de plantilla, pirámide demográfica, métricas colectivas y plantilla oficial completa 2024/2025.")
+
+        clubs_available = sorted(df_players["team_name"].unique())
+        default_club_idx = clubs_available.index("Sevilla FC") if "Sevilla FC" in clubs_available else 0
+        club_selected = st.selectbox("Seleccionar Club a Analizar:", clubs_available, index=default_club_idx)
+
+        team_squad = df_players[df_players["team_name"] == club_selected]
+        overview = team_profiler.get_team_overview(club_selected)
+
+        # KPIs Principales del Club
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("Jugadores en Nómina", f"{overview['squad_size']}")
+        k2.metric("Edad Media", f"{overview['avg_age']:.1f} años")
+        k3.metric("Valor Total de Mercado", f"{overview['total_market_value_m']:.1f} M€")
+        k4.metric("Rating Elo Competitivo", f"{overview['elo_rating']:.0f}")
+        k5.metric("Potencial Cantera", f"{overview['academy_players_count']} canteranos")
+
+        st.markdown("---")
+
+        c_squad, c_pyramid = st.columns([1.5, 1])
+        with c_squad:
+            st.subheader(f"📋 Plantilla Oficial 2024/2025 de {club_selected}")
+            st.dataframe(
+                team_squad[['player_name', 'position', 'age', 'market_value_m', 'minutes', 'xg_p90', 'xa_p90', 'interceptions_p90']]
+                .sort_values(by="market_value_m", ascending=False)
+                .style.background_gradient(subset=["market_value_m", "minutes"], cmap="Blues")
+                .format({"market_value_m": "{:.1f} M€", "xg_p90": "{:.2f}", "xa_p90": "{:.2f}", "interceptions_p90": "{:.2f}"}),
                 use_container_width=True
             )
 
-            st.markdown("---")
-            st.subheader("🔍 Plan de Desarrollo Individualizado y Comparativa Financiera")
-            prospect_names = prospects["player_name"].tolist()
-            chosen_prospect = st.selectbox("Seleccionar Promesa para Informe Completo:", prospect_names, index=0)
+        with c_pyramid:
+            st.subheader("📊 Pirámide Demográfica del Club")
+            age_chart = px.histogram(
+                team_squad, x="age", nbins=8, color="position",
+                title=f"Distribución de Edad: {club_selected}",
+                labels={"age": "Edad", "count": "Nº de Jugadores"},
+                color_discrete_sequence=px.colors.qualitative.Safe
+            )
+            age_chart.update_layout(paper_bgcolor="#0b0f19", plot_bgcolor="#0b0f19", font=dict(color="#ffffff"))
+            st.plotly_chart(age_chart, use_container_width=True)
 
-            pathway_info = academy_scout.recommend_career_pathway(chosen_prospect, target_team=target_club)
+        # Diagnóstico de déficits de la plantilla
+        diag_engine = SquadDiagnostics()
+        deficits = diag_engine.analyze_team_deficits(team_squad)
+        st.subheader("⚠️ Diagnóstico de Déficits y Alertas de Posición")
+        for pos, info in deficits.items():
+            if info["status"] == "CRITICAL":
+                st.error(f"🚨 **Posición {pos}**: Estado CRÍTICO. {info['reason']}")
+            elif info["status"] == "WARNING":
+                st.warning(f"⚠️ **Posición {pos}**: Advertencia. {info['reason']}")
+            else:
+                st.success(f"✅ **Posición {pos}**: Plantilla equilibrada y cubierta.")
 
-            c_info1, c_info2 = st.columns([1.5, 1.5])
-            with c_info1:
-                st.markdown(f"### 📋 Hoja de Ruta: {pathway_info['player_name']}")
-                st.write(f"**Origen formativo:** {pathway_info['academy_origin']} ({pathway_info['club']})")
-                st.write(f"**Edad:** {pathway_info['age']} años | **Demarcación:** {pathway_info['position']}")
-                st.write(f"**Nivel Actual:** {pathway_info['current_ovr']} OVR ➔ **Techo Potencial:** **{pathway_info['potential_ovr']} OVR** (+{pathway_info['growth_delta']} pts de mejora)")
+    # =========================================================================
+    # VISTA 3: RADAR DE GANGAS ('MONEYBALL INDEX' & TRANSFERMARKT)
+    # =========================================================================
+    elif menu == "3. 💰 Radar de Gangas Moneyball & Transfermarkt":
+        st.subheader("💰 Radar de Gangas Deportivas (Moneyball Index & Contratos)")
+        st.markdown("Identificación de futbolistas cuyo rendimiento deportivo supera ampliamente su precio de mercado o cuya situación contractual genera una ventana de oportunidad económica.")
 
-                st.info(f"**Ruta Recomendada:** 🎯 **{pathway_info['recommended_pathway']}**")
-                st.progress(pathway_info["readiness_score_pct"] / 100.0)
-                st.caption(f"Índice de Madurez Competitiva para la Élite: {pathway_info['readiness_score_pct']}%")
-                st.write(f"**Directriz del Ojeador:** {pathway_info['strategic_action']}")
+        tab_moneyball, tab_contracts = st.tabs(["🎯 Índice Moneyball (Rendimiento vs Valor)", "⏳ Oportunidades Contractuales (Transfermarkt)"])
 
-            with c_info2:
-                st.markdown("### 💰 Impacto Económico y Ahorro FFP")
-                st.metric("Ahorro Neto vs Fichaje de Mercado", f"{pathway_info['projected_savings_m']} M€")
-                st.caption(f"Coste estimado de fichar a un titular consagrado con {pathway_info['potential_ovr']} de OVR: {pathway_info['senior_replacement_benchmark_m']} M€.")
+        with tab_moneyball:
+            c_filter1, c_filter2 = st.columns(2)
+            with c_filter1:
+                max_val = st.slider("Valor de Mercado Máximo (M€):", 1.0, 50.0, 20.0, step=1.0)
+            with c_filter2:
+                sel_pos = st.selectbox("Posición Requerida:", ["Todas", "FW", "MF", "DF"])
 
-                st.write("**Hitos de Desarrollo Físico y Táctico:**")
-                for mile in pathway_info["development_milestones"]:
-                    st.write(f"• {mile}")
+            bargains_df = profiler.find_moneyball_bargains(max_value_m=max_val, min_minutes=300)
+            if sel_pos != "Todas":
+                bargains_df = bargains_df[bargains_df["position"] == sel_pos]
 
-            # Comparativa directa Cara a Cara vs Fichaje Senior
-            st.markdown("---")
-            st.subheader(f"⚔️ Cara a Cara: Apostar por {chosen_prospect} vs Mega-Fichaje Consagrado")
-            senior_candidates = df_players[(df_players["age"] >= 24) & (df_players["market_value_m"] >= 40.0)]["player_name"].tolist()
-            selected_senior = st.selectbox("Seleccionar Estrella Senior para Comparativa de Costes:", senior_candidates, index=0)
+            st.dataframe(
+                bargains_df[["player_name", "team_name", "league", "position", "age", "market_value_m", "moneyball_index", "xg_p90", "xa_p90", "interceptions_p90"]]
+                .style.background_gradient(subset=["moneyball_index"], cmap="YlGn")
+                .format({"market_value_m": "{:.1f} M€", "moneyball_index": "{:.1f}"}),
+                use_container_width=True
+            )
 
-            comp_data = academy_scout.compare_academy_vs_market_signing(chosen_prospect, selected_senior)
-            c_ac = comp_data["academy_prospect"]
-            c_sr = comp_data["senior_star"]
-            c_vd = comp_data["financial_verdict"]
+        with tab_contracts:
+            st.subheader("⏳ Jugadores en Último Año de Contrato (Vencimiento 2025)")
+            st.markdown("Jugadores de élite o alta proyección cuyos contratos vencen en menos de 12 meses, lo que permite negociar traspasos con descuentos del 40-70% o preacuerdos sin coste de transferencia.")
+            tm_opps = hub.transfermarkt.get_moneyball_contract_opportunities()
+            st.dataframe(
+                tm_opps.style.background_gradient(subset=["opportunity_score", "expected_saving_m"], cmap="Greens")
+                .format({"market_value_m": "{:.1f} M€", "estimated_transfer_fee_m": "{:.1f} M€", "expected_saving_m": "{:.1f} M€", "opportunity_score": "{:.1f}"}),
+                use_container_width=True
+            )
 
-            c_c1, c_c2 = st.columns(2)
-            with c_c1:
-                st.markdown(f"#### 🌱 Cantera: {c_ac['name']} ({c_ac['club']})")
-                st.write(f"**OVR Actual / Potencial:** {c_ac['current_ovr']} / **{c_ac['potential_ovr']}**")
-                st.write(f"**Coste de Traspaso:** {c_ac['transfer_fee_m']} M€")
-                st.write(f"**Sueldo Anual Estimado:** {c_ac['annual_wage_m']} M€")
-                st.write(f"**Impacto Anual FFP (Amortiz. + Sueldo):** {c_ac['annual_ffp_impact_m']} M€/año")
-                st.write(f"**Compromiso Total 5 años:** {c_ac['total_commitment_m']} M€")
+    # =========================================================================
+    # VISTA 4: OJEADOR DE CANTERAS Y WONDERKIDS SUB-21
+    # =========================================================================
+    elif menu == "4. 🌟 Ojeador de Canteras & Wonderkids Sub-21":
+        st.subheader("🌟 Ojeador de Canteras y Promesas Mundiales (Sub-21)")
+        st.markdown("Auditoría de talento joven propio y scouting de canteras rivales para reducir costes de traspaso y potenciar el activo patrimonial del club.")
 
-            with c_c2:
-                st.markdown(f"#### 🌟 Estrella Senior: {c_sr['name']} ({c_sr['club']})")
-                st.write(f"**OVR Actual:** {c_sr['current_ovr']} ({c_sr['age']} años)")
-                st.write(f"**Coste de Traspaso:** {c_sr['transfer_fee_m']} M€")
-                st.write(f"**Sueldo Anual Estimado:** {c_sr['annual_wage_m']} M€")
-                st.write(f"**Impacto Anual FFP (Amortiz. + Sueldo):** {c_sr['annual_ffp_impact_m']} M€/año")
-                st.write(f"**Compromiso Total 4 años:** {c_sr['total_commitment_m']} M€")
+        c_acad1, c_acad2 = st.columns([1, 1])
+        with c_acad1:
+            st.subheader("🐣 Detección de Wonderkids de la Red")
+            prospects = academy_scout.get_top_academy_prospects(max_age=21, min_potential=75.0)
+            st.dataframe(
+                prospects[["player_name", "team_name", "league", "position", "age", "potential_ovr", "market_value_m"]]
+                .style.background_gradient(subset=["potential_ovr"], cmap="Purples")
+                .format({"market_value_m": "{:.1f} M€", "potential_ovr": "{:.0f}"}),
+                use_container_width=True
+            )
 
-            st.success(f"💡 **Dictamen Financiero:** {c_vd['verdict_summary']} (Alivio salarial anual de **{c_vd['ffp_relief_annual_m']} M€/año**).")
-        else:
-            st.warning("No se encontraron canteranos con los filtros seleccionados.")
+        with c_acad2:
+            st.subheader("⚖️ Comparativa: Fichaje de Mercado vs Cantera Propia")
+            st.caption("Demostración del ahorro potencial al promocionar a un canterano frente a acudir al mercado internacional.")
+            comparison = academy_scout.compare_academy_vs_market("Alberto Collado", "Saúl Ñíguez")
+            st.json(comparison)
 
     # =========================================================================
     # VISTA 5: SIMULADOR DE PARTIDO EN VIVO (DIGITAL TWIN ESTILO NFL)
     # =========================================================================
-    elif menu == "5. Simulador de Partido en Vivo (Digital Twin estilo NFL)":
-        st.title("🎮 Simulador de Partido en Tiempo Real ('Digital Twin Táctico')")
-        st.markdown("Inspirado en los gemelos digitales de la NFL: simula el encuentro minuto a minuto comparando la **Táctica del Míster** vs la **Contra-Táctica óptima sugerida por la IA** frente al rival.")
+    elif menu == "5. 🎮 Digital Twin: Simulador de Partido en Vivo":
+        st.subheader("🎮 Simulador de Partido en Tiempo Real (Digital Twin estilo NFL)")
+        st.markdown("Simulación estocástica de situaciones de juego minuto a minuto para predecir probabilidades de victoria, fatiga acumulada y momentos idóneos de sustitución táctica.")
 
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            all_teams = sorted(df_players["team_name"].unique())
-            home_team = st.selectbox("Equipo Local (Tu Equipo):", all_teams, index=all_teams.index("Real Madrid") if "Real Madrid" in all_teams else 0)
-        with col_m2:
-            rival_options = [t for t in all_teams if t != home_team]
-            away_team = st.selectbox("Equipo Visitante (Rival):", rival_options, index=rival_options.index("Barcelona") if "Barcelona" in rival_options else 0)
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            team_a = st.selectbox("Equipo Local:", sorted(df_players["team_name"].unique()), index=0)
+        with col_t2:
+            team_b = st.selectbox("Equipo Visitante:", sorted(df_players["team_name"].unique()), index=1)
 
-        # Cargar perfil táctico del rival
-        rival_overview = team_profiler.get_team_overview(away_team)
-        rival_adn = rival_overview["tactical_adn"]
-        opp_profile = {
-            "defense_weakness": rival_overview["beta_defensive_leak"],
-            "attack_threat": rival_overview["alpha_offensive_power"],
-            "pressing_intensity": rival_adn["pressing_intensity"],
-            "high_line_vulnerability": 0.75 if rival_adn["pressing_intensity"] > 8.0 else 0.45,
-            "style": rival_adn["style"]
-        }
+        col_btn, _ = st.columns([1, 3])
+        with col_btn:
+            run_sim = st.button("▶️ Ejecutar Simulación Digital Twin")
 
-        st.markdown("---")
-        st.subheader("📋 Pizarra y Parámetros del Entrenador (Míster)")
-        cp1, cp2, cp3 = st.columns(3)
-        with cp1:
-            formation_coach = st.selectbox("Formación del Míster:", ["4-3-3", "4-2-3-1", "3-5-2", "5-3-2", "4-4-2"], index=0)
-        with cp2:
-            style_coach = st.selectbox("Estilo de Juego Propio:", [
-                "Posesión y Bloque Alto",
-                "Contragolpe y Transición Directa",
-                "Bloque Medio y Juego Combinativo",
-                "Presión Asfixiante y Verticalidad"
-            ], index=0)
-        with cp3:
-            pressing_coach = st.slider("Intensidad de Presión Propia (1-10):", 1.0, 10.0, 7.5)
+        if run_sim:
+            with st.spinner(f"Simulando 90 minutos entre {team_a} y {team_b}..."):
+                sim_result = scenario_sim.simulate_match_timeline(team_a, team_b, base_elo_home=elo.get_rating(team_a), base_elo_away=elo.get_rating(team_b))
 
-        if st.button("▶️ Iniciar Simulación de Partido Minuto a Minuto"):
-            with st.spinner(f"Simulando interacciones minuto a minuto entre {home_team} y {away_team}..."):
-                sim_result = scenario_sim.simulate_situational_match(
-                    home_team=home_team,
-                    away_team=away_team,
-                    coach_formation=formation_coach,
-                    coach_style=style_coach,
-                    coach_pressing=pressing_coach,
-                    opponent_profile=opp_profile
-                )
+            st.success(f"Marcador Final Simulado: **{team_a} {sim_result['final_score'][0]} - {sim_result['final_score'][1]} {team_b}**")
+            
+            c_m1, c_m2, c_m3 = st.columns(3)
+            c_m1.metric(f"xG {team_a}", f"{sim_result['total_xg_home']:.2f}")
+            c_m2.metric(f"xG {team_b}", f"{sim_result['total_xg_away']:.2f}")
+            c_m3.metric("Eventos de Peligro", f"{len(sim_result['events'])} jugadas clave")
 
-            coach_data = sim_result["coach_tactics"]
-            ai_data = sim_result["ai_counter_tactics"]
-            flaws = sim_result["own_vulnerabilities_alert"]
-
-            st.markdown("---")
-            # 1. MARCADOR FINAL SIMULADO
-            st.subheader("🏟️ Marcador Simulado (Minuto 90)")
-            col_sc1, col_sc2 = st.columns(2)
-            with col_sc1:
-                st.markdown(f"""
-                <div style="background-color: #1e2638; border: 2px solid #4a69bd; border-radius: 12px; padding: 18px; text-align: center;">
-                    <div style="color: #82ccdd; font-size: 14px; font-weight: bold; text-transform: uppercase;">Táctica del Míster ({formation_coach})</div>
-                    <div style="font-size: 38px; font-weight: 900; color: #ffffff; margin: 8px 0;">{coach_data['simulated_score']}</div>
-                    <div style="color: #dcdde1; font-size: 13px;">λ: {coach_data['expected_lambda']} | μ: {coach_data['expected_mu']}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with col_sc2:
-                st.markdown(f"""
-                <div style="background-color: #1a2e22; border: 2px solid #2ecc71; border-radius: 12px; padding: 18px; text-align: center;">
-                    <div style="color: #2ecc71; font-size: 14px; font-weight: bold; text-transform: uppercase;">Contra-Táctica IA ({ai_data['recommended_formation']})</div>
-                    <div style="font-size: 38px; font-weight: 900; color: #ffffff; margin: 8px 0;">{ai_data['simulated_score']}</div>
-                    <div style="color: #dcdde1; font-size: 13px;">λ: {ai_data['expected_lambda']} | μ: {ai_data['expected_mu']}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # 2. EVOLUCIÓN TEMPORAL DE xG (MINUTO 1-90)
-            st.markdown("---")
-            st.subheader("📈 Línea Temporal de Goles Esperados Acumulados (xG Timeline)")
-            df_xg = coach_data["xg_timeline"]
-            df_xg_ai = ai_data["xg_timeline"]
-
-            fig_xg = go.Figure()
-            fig_xg.add_trace(go.Scatter(x=df_xg["minute"], y=df_xg["xg_home"], mode="lines", name=f"{home_team} (Míster)", line=dict(color="#3498db", width=3)))
-            fig_xg.add_trace(go.Scatter(x=df_xg_ai["minute"], y=df_xg_ai["xg_home"], mode="lines", name=f"{home_team} (IA Counter)", line=dict(color="#2ecc71", width=3, dash="dash")))
-            fig_xg.add_trace(go.Scatter(x=df_xg["minute"], y=df_xg["xg_away"], mode="lines", name=f"{away_team} (Rival)", line=dict(color="#e74c3c", width=2)))
-
-            fig_xg.update_layout(
-                xaxis_title="Minuto de Juego",
-                yaxis_title="Goles Esperados Acumulados (xG)",
-                paper_bgcolor="#0e1117",
-                plot_bgcolor="#0e1117",
-                font=dict(color="#ffffff"),
-                height=380,
-                margin=dict(l=20, r=20, t=30, b=20)
-            )
-            st.plotly_chart(fig_xg, use_container_width=True)
-
-            # 3. RELATO MINUTO A MINUTO DE OCASIONES Y GOLES
-            c_ev1, c_ev2 = st.columns([1.8, 1.2])
-            with c_ev1:
-                st.subheader("⏱️ Registro de Ocasiones Peligrosas y Goles")
-                events = coach_data["events_log"]
-                if events:
-                    for ev in events:
-                        badge = "🟢" if ev["is_goal"] else "🟡"
-                        st.markdown(f"**Min {ev['minute']}'** {badge} [{ev['zone']}] {ev['desc']}")
-                else:
-                    st.info("Partido con juego muy trabado en el centro del campo sin ocasiones claras.")
-
-            with c_ev2:
-                st.subheader("🤖 Contra-Propuesta Táctica de la IA")
-                st.info(f"**Formación Óptima:** {ai_data['recommended_formation']}")
-                st.write(f"**Estilo:** {ai_data['recommended_style']}")
-                st.success(f"**Por qué supera al rival:** {ai_data['tactical_rationale']}")
-
-                st.subheader("⚠️ Detección de Grietas y Vulnerabilidades Propias")
-                for f in flaws:
-                    with st.expander(f"🚨 Zona: {f['zona']} (Riesgo {f['gravedad']})", expanded=True):
-                        st.write(f"**Problema táctico:** {f['descripcion']}")
-                        st.warning(f"**Solución del Analista:** {f['solucion_ia']}")
+            timeline_df = pd.DataFrame(sim_result["events"])
+            if not timeline_df.empty:
+                st.subheader("⏱️ Minutero de Ocasiones y Probabilidad de Gol")
+                st.dataframe(timeline_df[["minute", "team", "event_type", "xg_value", "win_prob_home"]], use_container_width=True)
 
     # =========================================================================
-    # VISTA 6: LABORATORIO DE FICHAJES ('WHAT-IF' & MONTE CARLO)
+    # VISTA 6: LABORATORIO TÁCTICO & PIZARRA VS RIVAL
     # =========================================================================
-    elif menu == "6. Laboratorio de Fichajes ('What-If' & Monte Carlo)":
-        st.title("🧪 Laboratorio de Simulación Táctica y Fichajes ('What-If')")
-        st.markdown("Simula con modelos probabilísticos qué le ocurre a tu equipo si fichas a un jugador de otra liga europea en lugar de tu titular actual.")
+    elif menu == "6. 🔬 Laboratorio Táctico & Pizarra vs Rival":
+        st.subheader("🔬 Laboratorio Táctico y Optimizador de Alineación vs Rival")
+        st.markdown("Elige a tu equipo y al rival de la jornada para recibir la formación recomendada por la IA, auditoría de vulnerabilidades y simulación Monte Carlo.")
 
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            my_team = st.selectbox("Tu Equipo de LaLiga:", sorted(df_players[df_players["league"] == "LaLiga"]["team_name"].unique()), index=0)
-            team_squad = df_players[df_players["team_name"] == my_team]
-            player_out_name = st.selectbox("Jugador Titular a Sustituir:", team_squad["player_name"].tolist())
-            player_out_row = team_squad[team_squad["player_name"] == player_out_name].iloc[0]
+        col_lab1, col_lab2 = st.columns(2)
+        with col_lab1:
+            my_team = st.selectbox("Tu Equipo:", sorted(df_players["team_name"].unique()), index=default_club_idx, key="lab_my")
+        with col_lab2:
+            rival_team = st.selectbox("Equipo Rival:", sorted(df_players["team_name"].unique()), index=0, key="lab_rival")
 
-        with col_s2:
-            candidate_pool = df_players[df_players["team_name"] != my_team]
-            cand_name = st.selectbox("Fichaje / Jugador a Incorporar:", candidate_pool["player_name"].tolist())
-            cand_row = candidate_pool[candidate_pool["player_name"] == cand_name].iloc[0]
+        if st.button("🧠 Calcular Pizarra Táctica y 11 Óptimo"):
+            with st.spinner("Ejecutando optimizador táctico..."):
+                tactical_plan = desk.prepare_match_plan(my_team, rival_team)
 
-        st.markdown("---")
-        if st.button("🚀 Simular Impacto del Fichaje (Dixon-Coles + 10.000 Monte Carlo)"):
-            with st.spinner("Procesando ajuste por dificultad competitiva Elo y simulación estocástica..."):
-                sim_res = desk.simulate_transfer_scenario(
-                    team_name=my_team,
-                    player_out_id=int(player_out_row["player_id"]),
-                    candidate_player_id=int(cand_row["player_id"]),
-                    base_lambda=1.28,
-                    base_mu=1.12,
-                    remaining_matches=15,
-                    current_points=40,
-                )
+            st.markdown(f"### 📋 Plan Táctico Recomendado: Formación {tactical_plan['formation_recommended']}")
+            st.info(f"💡 **Clave del Míster**: {tactical_plan['tactical_instructions']}")
 
-            swap = sim_res["swap_impact"]
-            mc = sim_res["monte_carlo_projection"]
-
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Goles Esp. Favor (λ)", f"{swap['new_lambda']}", delta=f"{swap['delta_lambda']:+0.3f}")
-            m2.metric("Goles Esp. Contra (μ)", f"{swap['new_mu']}", delta=f"{swap['delta_mu']:+0.3f}", delta_color="inverse")
-            m3.metric("Probabilidad Victoria", f"{swap['new_win_prob']*100:.1f}%", delta=f"{swap['win_prob_delta']*100:+0.1f}%")
-            m4.metric("Puntos Ganados a 38j", f"{mc['points_gain_mean']:+0.2f} pts", delta=f"{mc['points_gain_mean']:+0.2f}")
-
-            c_mc1, c_mc2 = st.columns(2)
-            with c_mc1:
-                st.subheader("Probabilidad Clasificación a Europa (>= 60 pts)")
-                st.progress(mc['new_prob_europe_60pts'])
-                st.write(f"Con el nuevo fichaje: **{mc['new_prob_europe_60pts']*100:.1f}%** (Antes: {mc['base_prob_europe_60pts']*100:.1f}%)")
-            with c_mc2:
-                st.subheader("Riesgo de Descenso (<= 38 pts)")
-                st.progress(mc['new_prob_relegation_38pts'])
-                st.write(f"Con el nuevo fichaje: **{mc['new_prob_relegation_38pts']*100:.1f}%** (Antes: {mc['base_prob_relegation_38pts']*100:.1f}%)")
+            col_opt1, col_opt2 = st.columns(2)
+            with col_opt1:
+                st.subheader("✅ 11 Titular Óptimo Recomendado")
+                st.dataframe(pd.DataFrame(tactical_plan["optimal_lineup"]), use_container_width=True)
+            with col_opt2:
+                st.subheader("🎲 Pronóstico Monte Carlo del Partido")
+                mc = tactical_plan["monte_carlo_prediction"]
+                st.metric("Probabilidad Victoria Local", f"{mc['win_home_prob']*100:.1f}%")
+                st.metric("Probabilidad Empate", f"{mc['draw_prob']*100:.1f}%")
+                st.metric("Probabilidad Victoria Visitante", f"{mc['win_away_prob']*100:.1f}%")
 
     # =========================================================================
-    # VISTA 7: PREPARADOR DE PARTIDO (PIZARRA VS RIVAL)
+    # VISTA 7: DOSSIER EJECUTIVO PARA LA DIRECTIVA
     # =========================================================================
-    elif menu == "7. Preparador de Partido (Pizarra vs Rival)":
-        st.title("⚔️ Preparación de Partido y Plan Táctico vs Rival")
-        st.markdown("Diseña el plan de partido contra el próximo rival de liga: alineación titular óptima según sus debilidades y directrices de pizarra.")
+    elif menu == "7. 📑 Dossier Ejecutivo para la Directiva":
+        st.subheader("📑 Generador de Dossier Técnico de Captación")
+        st.markdown("Emite un informe profesional en formato corporativo para presentar ante el Consejo de Administración y Dirección Deportiva.")
 
-        c_p1, c_p2 = st.columns(2)
-        with c_p1:
-            my_team = st.selectbox("Tu Equipo:", sorted(df_players[df_players["league"] == "LaLiga"]["team_name"].unique()), index=0)
-        with c_p2:
-            rivals = [t for t in sorted(df_players[df_players["league"] == "LaLiga"]["team_name"].unique()) if t != my_team]
-            rival = st.selectbox("Próximo Rival:", rivals, index=0)
-
-        # Cargar perfil táctico del rival
-        rival_overview = team_profiler.get_team_overview(rival)
-        rival_tactics = rival_overview["tactical_adn"]
-
-        opp_profile = {
-            "defense_weakness": rival_overview["beta_defensive_leak"],
-            "attack_threat": rival_overview["alpha_offensive_power"],
-            "high_line_vulnerability": 0.75 if rival_tactics["pressing_intensity"] > 8.0 else 0.40,
-            "low_block_tendency": 0.65 if rival_tactics["possession_pct"] < 50.0 else 0.30,
-        }
-
-        st.info(f"**Análisis del Rival ({rival}):** Estilo: *{rival_tactics['style']}* • Posesión: *{rival_tactics['possession_pct']}%* • Fragilidad defensiva: *{rival_overview['beta_defensive_leak']}*")
-
-        plan = desk.prepare_match_plan(
-            team_name=my_team,
-            opponent_profile=opp_profile,
-            formation={"GK": 1, "DF": 4, "MF": 3, "FW": 3}
-        )
-
-        st.subheader(f"🏆 Once Titular Recomendado vs {rival}")
-        st.dataframe(plan["optimal_lineup"][["player_name", "position", "tactical_fit_score", "xg_p90", "xa_p90", "interceptions_p90"]], use_container_width=True)
-
-        st.subheader("📌 Directrices Tácticas y Pizarra del Cuerpo Técnico")
-        for play in plan["tactical_plays"]:
-            with st.expander(f"🔹 {play['categoria']}: {play['jugada']}", expanded=True):
-                st.write(f"**Contexto Estadístico:** {play['contexto']}")
-                st.info(f"**Instrucción al Entrenador:** {play['instruccion_analista']}")
-                st.success(f"**Impacto Esperado:** {play['impacto_esperado']}")
-
-    # =========================================================================
-    # VISTA 8: DOSSIER EJECUTIVO PARA DIRECTIVA
-    # =========================================================================
-    elif menu == "8. Dossier Ejecutivo para Directiva":
-        st.title("📑 Dossier Ejecutivo de Decisión Deportiva")
-        st.markdown("Informe consolidado para el Director Deportivo y la Junta Directiva justificando fichajes con analítica de datos e impacto financiero.")
-
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
-            club = st.selectbox("Club Solicitante:", sorted(df_players[df_players["league"] == "LaLiga"]["team_name"].unique()), index=0)
-        with col_d2:
-            target_p = st.selectbox("Futbolista a Analizar:", sorted(df_players["player_name"].unique()), index=0)
-
-        p_data = df_players[df_players["player_name"] == target_p].iloc[0]
-        card = profiler.calculate_fifa_card(p_data)
+        p_sel = st.selectbox("Seleccionar Jugador para el Informe:", sorted(df_players["player_name"].unique()))
+        p_row = df_players[df_players["player_name"] == p_sel].iloc[0]
+        card = profiler.calculate_fifa_card(p_row)
 
         st.markdown(f"""
-        ### 📄 INFORME TÉCNICO DE CAPTACIÓN: {card['player_name']}
-        * **Club Actual:** {card['team_name']} ({card['league']})
-        * **Edad / Posición:** {card['age']} años | {card['position']}
-        * **Valor de Mercado:** {card['market_value_m']} M€
-        * **Media Global (OVR):** **{card['OVR']} / 99**
-        * **Perfil de Atributos:** Ritmo {card['PAC']} | Tiro {card['SHO']} | Pase {card['PAS']} | Regate {card['DRI']} | Defensa {card['DEF']} | Físico {card['PHY']}
-        ---
-        **Dictamen del Algoritmo:**
-        Futbolista con alto impacto métrico en su demarcación. Su incorporación representa un salto cualitativo en goles esperados y creación de ocasiones frente al promedio actual de la plantilla de **{club}**.
+        <div class="glass-card">
+            <h2>📄 INFORME DE EXPLORACIÓN: {p_sel}</h2>
+            <p><b>Demarcación:</b> {card['position']} | <b>Club:</b> {card['team_name']} ({card['league']}) | <b>Edad:</b> {card['age']} años</p>
+            <hr style="border-color: #334155;">
+            <h4>VALORACIÓN DE ATRIBUTOS (Media OVR: {card['OVR']}/99)</h4>
+            <p>• <b>Ritmo:</b> {card['PAC']} | <b>Tiro:</b> {card['SHO']} | <b>Pase:</b> {card['PAS']} | <b>Regate:</b> {card['DRI']} | <b>Defensa:</b> {card['DEF']} | <b>Físico:</b> {card['PHY']}</p>
+            <p>• <b>Valor de Mercado Estimado:</b> {card['market_value_m']} M€</p>
+            <p>• <b>Métricas Clave:</b> xG p90: {p_row['xg_p90']:.2f} | xA p90: {p_row['xa_p90']:.2f} | Intercepciones p90: {p_row['interceptions_p90']:.2f}</p>
+            <hr style="border-color: #334155;">
+            <h4>DICTAMEN TÉCNICO FINAL</h4>
+            <p style="color: #34d399; font-weight: bold;">✅ RECOMENDACIÓN: PROCEDER A LA ADQUISICIÓN / SEGUIMIENTO PRIORITARIO.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # =========================================================================
+    # VISTA 8: HUB DE BIG DATA, LIBRERÍAS AVANZADAS & APIS (TFM EDITION)
+    # =========================================================================
+    elif menu == "8. ⚡ Hub de Big Data, Librerías Avanzadas & APIs (TFM)":
+        st.subheader("⚡ Data Lakehouse Hub: Integración de las 7 Fuentes & Librerías Avanzadas")
+        st.markdown("""
+        Arquitectura unificada de datos para el TFM que agrupa proveedores abiertos y APIs profesionales:
+        **StatsBomb**, **Understat**, **SoccerData (FBref)**, **Kloppy (PySport)**, **OpenFootball**, **Transfermarkt** y **Football-Data.org**.
         """)
-        st.success("✅ Recomendación Final del Modelo: FICHAR (Viabilidad Deportiva Alta)")
 
-    # =========================================================================
-    # VISTA 9: CONECTOR DE APIS EN VIVO & RED MUNDIAL DE SCOUTING
-    # =========================================================================
-    elif menu == "9. Conector de APIs en Vivo & Red Mundial":
-        st.title("📡 Conector de APIs en Vivo y Red Mundial de Jugadores")
-        st.markdown("Integración con proveedores de datos en tiempo real (**API-Football / RapidAPI**, **Football-Data.org**) y gestión de la red global de scouting.")
+        # Pestañas correspondientes a cada herramienta requerida
+        t_sb, t_und, t_sd, t_klp, t_of, t_tm, t_fd = st.tabs([
+            "🔴 StatsBomb 360 & (x, y)",
+            "🎯 Understat Shot Engine",
+            "📊 SoccerData & FBref",
+            "🧬 Kloppy Standardizer",
+            "🌍 OpenFootball Feed",
+            "💶 Transfermarkt Datasets",
+            "📡 Football-Data REST & Postgres"
+        ])
 
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Futbolistas Registrados", f"{len(df_players):,}")
-        k2.metric("Ligas Mundiales", f"{df_players['league'].nunique()} competiciones")
-        k3.metric("Clubes en la Red", f"{df_players['team_name'].nunique()} equipos")
-        k4.metric("Promesas Sub-21", f"{len(df_players[df_players['age'] <= 21])} canteranos")
+        # TAB 1: STATSBOMB OPEN DATA
+        with t_sb:
+            st.markdown("### 🔴 StatsBomb Open Data (statsbombpy)")
+            st.markdown("Event data académico con coordenadas espaciales exactas $(x, y)$, pases, presiones y freeze frames 360.")
+            
+            sb_comps = hub.statsbomb.get_featured_competitions()
+            st.dataframe(sb_comps, use_container_width=True)
 
-        st.markdown("---")
+            st.markdown("#### 🏟️ Eventos Espaciales de Partido Real: Final Champions League (Tottenham vs Liverpool)")
+            events_df = hub.statsbomb.get_match_events(match_id=22912)
+            st.dataframe(events_df[["minute", "type", "team", "location_x", "location_y"]].head(15), use_container_width=True)
 
-        c_api1, c_api2 = st.columns(2)
-        with c_api1:
-            st.subheader("🔑 Credenciales de APIs Deportivas")
-            st.caption("Introduce tus claves gratuitas de RapidAPI o Football-Data para habilitar consultas en tiempo real.")
-            api_foot_key = st.text_input("API-Football Key (API-Sports / RapidAPI):", value="", type="password")
-            foot_data_token = st.text_input("Football-Data.org Token:", value="", type="password")
+        # TAB 2: UNDERSTAT SHOT ENGINE
+        with t_und:
+            st.markdown("### 🎯 Understat Shot Engine & Eficiencia de Finalización (G - xG)")
+            st.markdown("Registro tiro a tiro de cada futbolista para evaluar la probabilidad matemática del remate y la eficacia frente al guardameta rival.")
+            
+            shots = hub.understat.get_shot_data(limit=300)
+            fig_shots = draw_understat_shot_map(shots, title="Mapa de Tiros Registrados (Understat xG Shot Chart)")
+            st.plotly_chart(fig_shots, use_container_width=True)
 
-            connector = FootballAPIConnector(api_football_key=api_foot_key, football_data_token=foot_data_token)
+            st.markdown("#### 🏅 Eficiencia de Finalización: Goles Reales vs Goles Esperados (G - xG)")
+            st.caption("Un valor positivo ($G - xG > 0$) identifica a delanteros y extremos de finalización superlativa.")
+            eff_df = hub.understat.compute_player_finishing_efficiency(shots)
+            st.dataframe(
+                eff_df.style.background_gradient(subset=["goals_minus_xg", "finishing_ratio"], cmap="Greens")
+                .format({"total_xg": "{:.2f}", "goals_minus_xg": "{:+.2f}", "finishing_ratio": "{:.2f}x"}),
+                use_container_width=True
+            )
 
-            col_b1, col_b2 = st.columns(2)
-            with col_b1:
-                if st.button("📡 Probar API-Football"):
-                    with st.spinner("Comprobando conexión..."):
-                        diag = connector.test_api_football_connection()
+        # TAB 3: SOCCERDATA & FBREF
+        with t_sd:
+            st.markdown("### 📊 SoccerData (Python Wrapper para FBref & WhoScored)")
+            st.markdown("Métricas avanzadas p90 de nivel profesional: xG, xAG, Acciones Creadoras de Tiro (SCA) y acarreos progresivos.")
+            sd_metrics = hub.soccerdata.get_advanced_p90_metrics()
+            st.dataframe(
+                sd_metrics.style.background_gradient(subset=["xg_p90", "xag_p90", "sca_p90"], cmap="Blues"),
+                use_container_width=True
+            )
+
+        # TAB 4: KLOPPY STANDARDIZER
+        with t_klp:
+            st.markdown("### 🧬 Kloppy (PySport Data Normalization)")
+            st.markdown("Estandarización de flujos de eventos heterogéneos (StatsBomb, Opta, Wyscout) a un modelo universal de coordenadas $[0, 100]$ y taxonomía unificada.")
+            raw_sample = shots.head(10).rename(columns={"x": "location_x", "y": "location_y", "result": "type"})
+            kloppy_res = hub.kloppy.standardize_event_stream(raw_sample)
+            st.dataframe(kloppy_res, use_container_width=True)
+
+        # TAB 5: OPENFOOTBALL FEED
+        with t_of:
+            st.markdown("### 🌍 OpenFootball Datasets (GitHub Raw Feeds)")
+            st.markdown("Marcadores, calendarios y resultados de ligas europeas sin límites de peticiones (Zero Rate Limits).")
+            of_matches = hub.openfootball.get_league_season_matches()
+            st.dataframe(of_matches, use_container_width=True)
+
+        # TAB 6: TRANSFERMARKT DATASETS
+        with t_tm:
+            st.markdown("### 💶 Transfermarkt Datasets (salimt / Kaggle)")
+            st.markdown("Evolución histórica de valoraciones y oportunidades contractuales para estrategias de inversión Moneyball.")
+            
+            p_tm_sel = st.selectbox("Ver Curva Histórica de Valor para:", ["Lamine Yamal", "Vinícius Júnior", "Loïc Badé", "Isaac Romero", "Dodi Lukebakio"])
+            val_curve = hub.transfermarkt.get_player_market_value_evolution(p_tm_sel)
+            fig_curve = px.line(val_curve, x="date", y="market_value_m", markers=True, title=f"Evolución del Valor de Mercado: {p_tm_sel} (M€)")
+            fig_curve.update_layout(paper_bgcolor="#0b0f19", plot_bgcolor="#0b0f19", font=dict(color="#ffffff"))
+            st.plotly_chart(fig_curve, use_container_width=True)
+
+        # TAB 7: FOOTBALL-DATA REST & POSTGRESQL SYNC
+        with t_fd:
+            st.markdown("### 📡 Football-Data.org API & Persistencia Relacional PostgreSQL")
+            st.markdown("Conector REST con token y sincronización directa con las tablas de PostgreSQL (`analytics_scouting_metrics`, `dim_players`).")
+
+            c_token1, c_token2 = st.columns(2)
+            with c_token1:
+                foot_token = st.text_input("Football-Data Token:", value="", type="password")
+                api_connector = FootballAPIConnector(football_data_token=foot_token)
+                if st.button("📡 Probar Conectividad con Football-Data"):
+                    diag = api_connector.test_football_data_connection()
                     if diag["connected"]:
                         st.success(f"✅ {diag['message']}")
                     else:
                         st.info(f"ℹ️ {diag['message']}")
-            with col_b2:
-                if st.button("📡 Probar Football-Data"):
-                    with st.spinner("Comprobando conexión..."):
-                        diag_fd = connector.test_football_data_connection()
-                    if diag_fd["connected"]:
-                        st.success(f"✅ {diag_fd['message']}")
-                    else:
-                        st.info(f"ℹ️ {diag_fd['message']}")
 
-        with c_api2:
-            st.subheader("🔍 Consulta en Vivo de Jugador en la API")
-            live_query = st.text_input("Nombre de Jugador a Buscar en Vivo:", placeholder="Ej: Jude Bellingham, Pedri, Estêvão...")
-            if st.button("🚀 Buscar en Vivo en la API"):
-                if not api_foot_key:
-                    st.warning("⚠️ Requiere API Key de API-Football para búsquedas en directo. Puedes obtener una gratuita en api-sports.io o rapidapi.com.")
-                else:
-                    with st.spinner(f"Consultando endpoint /players para '{live_query}'..."):
-                        results = connector.search_live_player(live_query)
-                    if results:
-                        st.success(f"Se encontraron {len(results)} jugadores en la API.")
-                        st.dataframe(pd.DataFrame(results))
-                    else:
-                        st.info(f"No se devolvieron resultados para '{live_query}'.")
-
-        st.markdown("---")
-        st.subheader("🔄 Sincronización con PostgreSQL")
-        st.markdown("Guarda y sincroniza toda la red mundial en las tablas relacionales de PostgreSQL (`analytics_scouting_metrics`, `dim_teams`, `dim_players`).")
-
-        if st.button("📥 Sincronizar Base de Datos Global con PostgreSQL"):
-            with st.spinner("Sincronizando datos con el motor PostgreSQL..."):
-                synced_count = sync_global_database_to_postgres(df_players)
-            st.success(f"✅ Sincronización exitosa: {synced_count} futbolistas persistidos en PostgreSQL.")
-            st.cache_data.clear()
-
-        st.markdown("---")
-        st.subheader("🌐 Explorador Global de Jugadores del Mundo")
-        cf1, cf2, cf3, cf4 = st.columns(4)
-        with cf1:
-            league_f = st.selectbox("Liga:", ["Todas"] + sorted(df_players["league"].unique()), key="exp_league")
-        with cf2:
-            pos_f = st.selectbox("Posición:", ["Todas", "FW", "MF", "DF", "GK"], key="exp_pos")
-        with cf3:
-            max_age_f = st.slider("Edad Máxima:", 16, 40, 35, key="exp_age")
-        with cf4:
-            only_acad_f = st.checkbox("Sólo Canteranos / Promesas", value=False, key="exp_acad")
-
-        filtered_global = df_players.copy()
-        if league_f != "Todas":
-            filtered_global = filtered_global[filtered_global["league"] == league_f]
-        if pos_f != "Todas":
-            filtered_global = filtered_global[filtered_global["position"] == pos_f]
-        filtered_global = filtered_global[filtered_global["age"] <= max_age_f]
-        if only_acad_f:
-            filtered_global = filtered_global[filtered_global["is_academy"] == True]
-
-        st.dataframe(
-            filtered_global[["player_name", "team_name", "league", "position", "age", "market_value_m", "potential_ovr", "xg_p90", "xa_p90", "interceptions_p90"]]
-            .style.background_gradient(subset=["potential_ovr", "market_value_m"], cmap="Blues"),
-            use_container_width=True
-        )
+            with c_token2:
+                st.markdown("#### 🔄 Persistir Base de Datos en PostgreSQL")
+                if st.button("📥 Ejecutar Sincronización en PostgreSQL"):
+                    with st.spinner("Sincronizando registros con PostgreSQL..."):
+                        synced = sync_global_database_to_postgres(df_players)
+                    st.success(f"✅ {synced} futbolistas guardados en la base de datos PostgreSQL.")
 
 
 if __name__ == "__main__":

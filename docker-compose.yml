@@ -31,7 +31,7 @@ services:
     volumes:
       - .:/home/jovyan/work
     command: >
-      bash -c "pip install -r /home/jovyan/work/requirements.txt && 
+      bash -c "pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r /home/jovyan/work/requirements.txt || true; 
       start-notebook.sh --NotebookApp.token='moneyball' --NotebookApp.password=''"
     networks:
       - moneyball_net
