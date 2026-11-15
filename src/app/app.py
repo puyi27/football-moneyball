@@ -128,16 +128,16 @@ def get_db_engine():
             return None
 
 @st.cache_data
-def get_players_database() -> pd.DataFrame:
-    """Carga la base de datos de futbolistas reales con sus métricas y valores oficiales."""
+def get_players_database(season: str = "2026/2027") -> pd.DataFrame:
+    """Carga la base de datos de futbolistas reales con sus métricas y valores oficiales para la temporada solicitada."""
     try:
-        df = load_global_players()
+        df = load_global_players(season=season)
         if df is not None and not df.empty:
             return df
     except Exception as e:
-        st.warning(f"Aviso al cargar base de datos global: {e}. Activando generador local de contingencia.")
+        st.warning(f"Aviso al cargar base de datos global ({season}): {e}. Activando generador local de contingencia.")
     from src.data.global_player_database import generate_worldwide_player_network
-    return generate_worldwide_player_network()
+    return generate_worldwide_player_network(season=season)
 
 @st.cache_resource
 def get_advanced_hub() -> MasterAnalyticsDataHub:
@@ -254,8 +254,23 @@ def draw_digital_twin_xg_timeline(timeline_df: pd.DataFrame, home_team: str, awa
 # 4. APLICACIÓN PRINCIPAL STREAMLIT
 # =============================================================================
 def main():
+    # Barra lateral: Selector de temporada oficial (2026/2027 en curso por defecto)
+    st.sidebar.markdown("### 📅 Temporada de Análisis")
+    season_options = [
+        "2026/2027 (En Curso)",
+        "2025/2026",
+        "2024/2025"
+    ]
+    season_sel_str = st.sidebar.selectbox(
+        "Seleccionar Temporada Oficial:",
+        season_options,
+        index=0,
+        key="global_season_selector"
+    )
+    clean_season = season_sel_str.split(" ")[0]
+
     # Encabezado ejecutivo de la plataforma
-    st.markdown("""
+    st.markdown(f"""
     <div class="executive-header">
         <div class="executive-title">
             ⚽ FOOTBALL MONEYBALL AI — VIRTUAL ANALYST DESK
@@ -267,16 +282,16 @@ def main():
             <span class="status-badge badge-green">🟢 PostgreSQL 16 Live</span>
             <span class="status-badge badge-blue">⚡ Apache Spark 3.5.0</span>
             <span class="status-badge badge-purple">📡 7 Data Engines Synced</span>
-            <span class="status-badge badge-gold">🏆 LaLiga 24/25 Official Squads</span>
+            <span class="status-badge badge-gold">🏆 Temporada {clean_season} Activa</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Carga defensiva de la base de datos de jugadores
+    # Carga defensiva de la base de datos de jugadores según la temporada activa
     try:
-        df_players = get_players_database()
+        df_players = get_players_database(season=clean_season)
     except Exception as e:
-        st.error(f"Error crítico al conectar con la base de datos de jugadores: {e}")
+        st.error(f"Error crítico al conectar con la base de datos de jugadores ({clean_season}): {e}")
         df_players = pd.DataFrame()
 
     if df_players.empty:
@@ -470,7 +485,7 @@ def main():
     # =========================================================================
     elif modulo == "Módulo II: Dirección Deportiva & Plantillas":
         st.subheader("📋 Módulo II: Dirección Deportiva, Plantillas Oficiales & Canteras")
-        st.markdown("Centro de gestión integral del club con las **20 plantillas completas y oficiales de LaLiga 2024/2025**, pirámide demográfica, auditoría de posiciones y ojeador de canteras.")
+        st.markdown(f"Centro de gestión integral del club con las **20 plantillas completas y oficiales de LaLiga {clean_season}**, pirámide demográfica, auditoría de posiciones y ojeador de canteras.")
 
         try:
             club_sel = st.selectbox(
@@ -504,7 +519,7 @@ def main():
 
         c_squad_tbl, c_demog = st.columns([1.5, 1])
         with c_squad_tbl:
-            st.markdown(f"#### 📋 Plantilla Oficial 2024/2025 de {club_sel} ({len(squad)} Jugadores)")
+            st.markdown(f"#### 📋 Plantilla Oficial {clean_season} de {club_sel} ({len(squad)} Jugadores)")
             try:
                 target_cols = ['player_name', 'position', 'age', 'market_value_m', 'minutes', 'xg_p90', 'xa_p90', 'interceptions_p90']
                 show_cols = [c for c in target_cols if c in squad.columns]
@@ -855,7 +870,7 @@ def main():
 
         with t7:
             st.markdown("#### 🔄 Persistencia y Sincronización en PostgreSQL 16")
-            st.markdown("Sincroniza y persiste los datos de los 324 futbolistas y plantillas de la red mundial en las tablas relacionales de PostgreSQL.")
+            st.markdown(f"Sincroniza y persiste los datos multitemporada de los futbolistas y plantillas de la red mundial ({clean_season}) en las tablas relacionales de PostgreSQL.")
             if st.button("📥 Ejecutar Sincronización con PostgreSQL", key="mod4_btn_pg_sync"):
                 try:
                     with st.spinner("Sincronizando registros con PostgreSQL..."):

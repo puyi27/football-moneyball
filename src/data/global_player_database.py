@@ -20,24 +20,62 @@ def get_postgres_engine():
             return None
 
 
-def generate_worldwide_player_network() -> pd.DataFrame:
+def generate_worldwide_player_network(season: str = "2026/2027") -> pd.DataFrame:
     """
     Genera la base de datos oficial y completa con las plantillas REALES
-    y actualizadas de los 20 clubes de LaLiga EA Sports (2024/2025) y las grandes ligas europeas y mundiales.
+    y actualizadas de los 20 clubes de LaLiga EA Sports y las grandes ligas europeas y mundiales.
+    Soporta multitemporada: '2026/2027' (En curso - Noviembre 2026), '2025/2026' y '2024/2025'.
     """
+    season_str = str(season).strip()[:9]
+    if season_str not in ["2026/2027", "2025/2026", "2024/2025"]:
+        season_str = "2026/2027"
+
+    if season_str == "2026/2027":
+        age_offset = 2
+        pid = 1000
+    elif season_str == "2025/2026":
+        age_offset = 1
+        pid = 2000
+    else:
+        age_offset = 0
+        pid = 3000
+
     players: List[Dict[str, Any]] = []
-    pid = 1000
 
     def add_p(
-        name: str, team: str, league: str, pos: str, age: int, mv: float, mins: int,
+        name: str, team: str, league: str, pos: str, base_age: int, base_mv: float, mins: int,
         xg: float, xa: float, goals: float, assists: float,
         interc: float, tackles: float, dribbles: float, prog: float,
-        pot: Optional[int] = None, is_acad: bool = False, acad_orig: Optional[str] = None
+        pot: Optional[int] = None, is_acad: bool = False, acad_orig: Optional[str] = None,
+        exact_age: Optional[int] = None, exact_mv: Optional[float] = None
     ):
         nonlocal pid
         pid += 1
+        age = exact_age if exact_age is not None else (base_age + age_offset)
+
+        if exact_mv is not None:
+            mv = float(exact_mv)
+        else:
+            if age_offset == 2:
+                if base_age <= 21:
+                    mv = round(base_mv * 1.25, 1)
+                elif base_age >= 32:
+                    mv = round(max(0.8, base_mv * 0.70), 1)
+                else:
+                    mv = round(base_mv * 1.05, 1)
+            elif age_offset == 1:
+                if base_age <= 21:
+                    mv = round(base_mv * 1.15, 1)
+                elif base_age >= 32:
+                    mv = round(max(0.9, base_mv * 0.85), 1)
+                else:
+                    mv = base_mv
+            else:
+                mv = base_mv
+
         players.append({
             "player_id": pid,
+            "season": season_str,
             "player_name": name,
             "team_name": team,
             "league": league,
@@ -55,39 +93,90 @@ def generate_worldwide_player_network() -> pd.DataFrame:
             "prog_passes_p90": prog,
             "is_reliable": True,
             "potential_ovr": pot or (88 if age <= 21 else 82),
-            "is_academy": is_acad or (age <= 21 and mv <= 20.0),
+            "is_academy": is_acad or (age <= 21 and mv <= 25.0),
             "academy_origin": acad_orig or (f"Cantera {team}" if is_acad else "Fútbol Base Externo")
         })
 
     # =========================================================================
-    # LALIGA EA SPORTS (PLANTILLAS COMPLETAS Y REALES 2024/2025)
+    # LALIGA EA SPORTS (PLANTILLAS COMPLETAS Y REALES MULTITEMPORADA)
     # =========================================================================
 
-    # 1. SEVILLA FC (PLANTILLA COMPLETA Y OFICIAL)
-    add_p("Ørjan Nyland", "Sevilla FC", "LaLiga", "GK", 34, 1.8, 2200, 0.00, 0.00, 0.00, 0.00, 0.20, 0.15, 0.05, 1.40, 80)
-    add_p("Álvaro Fernández", "Sevilla FC", "LaLiga", "GK", 26, 2.5, 850, 0.00, 0.00, 0.00, 0.00, 0.18, 0.12, 0.05, 1.30, 80)
-    add_p("Loïc Badé", "Sevilla FC", "LaLiga", "DF", 24, 20.0, 2100, 0.05, 0.02, 0.04, 0.01, 2.30, 2.80, 0.40, 4.80, 87)
-    add_p("Marcão", "Sevilla FC", "LaLiga", "DF", 28, 4.0, 1100, 0.04, 0.02, 0.03, 0.01, 2.15, 2.60, 0.25, 4.10, 80)
-    add_p("Tanguy Nianzou", "Sevilla FC", "LaLiga", "DF", 22, 4.0, 950, 0.06, 0.03, 0.05, 0.01, 2.20, 2.50, 0.35, 4.40, 85, True, "PSG Academy")
-    add_p("Kike Salas", "Sevilla FC", "LaLiga", "DF", 22, 6.0, 1450, 0.08, 0.04, 0.08, 0.02, 2.10, 2.45, 0.30, 4.60, 86, True, "Cantera Sevilla FC")
-    add_p("José Ángel Carmona", "Sevilla FC", "LaLiga", "DF", 22, 5.0, 1950, 0.04, 0.18, 0.03, 0.15, 2.10, 2.80, 1.20, 4.90, 85, True, "Cantera Sevilla FC")
-    add_p("Juanlu Sánchez", "Sevilla FC", "LaLiga", "DF", 21, 15.0, 1900, 0.12, 0.28, 0.10, 0.25, 1.80, 2.60, 2.40, 5.80, 89, True, "Cantera Sevilla FC")
-    add_p("Adrià Pedrosa", "Sevilla FC", "LaLiga", "DF", 26, 4.5, 1600, 0.06, 0.28, 0.04, 0.24, 1.75, 2.30, 1.90, 5.40, 81)
-    add_p("Valentín Barco", "Sevilla FC", "LaLiga", "DF", 20, 12.0, 900, 0.08, 0.35, 0.05, 0.30, 1.65, 2.40, 2.80, 6.80, 88, True, "Boca Predio")
-    add_p("Nemanja Gudelj", "Sevilla FC", "LaLiga", "MF", 33, 3.5, 2050, 0.08, 0.10, 0.08, 0.08, 2.20, 2.70, 0.40, 6.50, 80)
-    add_p("Lucien Agoumé", "Sevilla FC", "LaLiga", "MF", 22, 8.0, 1850, 0.05, 0.15, 0.04, 0.12, 2.40, 3.10, 1.10, 7.20, 86)
-    add_p("Djibril Sow", "Sevilla FC", "LaLiga", "MF", 27, 7.5, 1700, 0.12, 0.18, 0.10, 0.15, 1.95, 2.80, 1.30, 6.40, 82)
-    add_p("Albert Sambi Lokonga", "Sevilla FC", "LaLiga", "MF", 25, 12.0, 1250, 0.10, 0.24, 0.08, 0.20, 1.85, 2.65, 1.70, 7.60, 85, True, "Anderlecht")
-    add_p("Saúl Ñíguez", "Sevilla FC", "LaLiga", "MF", 29, 5.0, 1200, 0.14, 0.18, 0.12, 0.15, 1.70, 2.50, 1.10, 5.40, 80)
-    add_p("Manu Bueno", "Sevilla FC", "LaLiga", "MF", 20, 1.5, 450, 0.08, 0.20, 0.06, 0.18, 1.60, 2.20, 1.20, 6.10, 84, True, "Cantera Sevilla FC")
-    add_p("Dodi Lukebakio", "Sevilla FC", "LaLiga", "FW", 27, 15.0, 2150, 0.48, 0.25, 0.52, 0.22, 0.60, 1.10, 3.60, 4.20, 84)
-    add_p("Isaac Romero", "Sevilla FC", "LaLiga", "FW", 24, 18.0, 2050, 0.52, 0.30, 0.48, 0.28, 0.85, 1.60, 2.40, 4.40, 87, True, "Cantera Sevilla FC")
-    add_p("Chidera Ejuke", "Sevilla FC", "LaLiga", "FW", 26, 8.0, 1300, 0.32, 0.35, 0.30, 0.32, 0.70, 1.20, 4.50, 4.80, 83)
-    add_p("Gerard Fernández 'Peque'", "Sevilla FC", "LaLiga", "FW", 22, 5.0, 1350, 0.36, 0.32, 0.32, 0.28, 0.90, 1.50, 2.60, 5.40, 86, True, "La Masia / Racing")
-    add_p("Suso Fernández", "Sevilla FC", "LaLiga", "FW", 31, 3.0, 980, 0.22, 0.45, 0.20, 0.42, 0.55, 1.10, 2.40, 7.80, 81)
-    add_p("Kelechi Iheanacho", "Sevilla FC", "LaLiga", "FW", 28, 9.0, 800, 0.45, 0.18, 0.42, 0.15, 0.35, 0.75, 1.60, 2.80, 81, True, "Man City Academy")
-    add_p("Stanis Idumbo", "Sevilla FC", "LaLiga", "FW", 19, 6.0, 650, 0.35, 0.25, 0.38, 0.20, 0.60, 1.10, 3.20, 4.10, 88, True, "Cantera Sevilla FC")
-    add_p("Alberto Collado", "Sevilla FC", "LaLiga", "MF", 19, 3.5, 490, 0.15, 0.26, 0.12, 0.22, 1.55, 2.20, 1.80, 6.10, 86, True, "Cantera Sevilla FC")
+    # 1. SEVILLA FC (PLANTILLA COMPLETA Y OFICIAL SEGÚN TEMPORADA)
+    if season_str == "2026/2027":
+        add_p("Ørjan Nyland", "Sevilla FC", "LaLiga", "GK", 34, 1.2, 1950, 0.00, 0.00, 0.00, 0.00, 0.20, 0.15, 0.05, 1.40, 80, exact_age=36, exact_mv=1.2)
+        add_p("Álvaro Fernández", "Sevilla FC", "LaLiga", "GK", 26, 3.0, 1200, 0.00, 0.00, 0.00, 0.00, 0.18, 0.12, 0.05, 1.30, 80, exact_age=28, exact_mv=3.0)
+        add_p("Loïc Badé", "Sevilla FC", "LaLiga", "DF", 24, 28.0, 2250, 0.05, 0.02, 0.04, 0.01, 2.45, 2.85, 0.40, 4.80, 88, exact_age=26, exact_mv=28.0)
+        add_p("Marcão", "Sevilla FC", "LaLiga", "DF", 28, 2.5, 1050, 0.04, 0.02, 0.03, 0.01, 2.20, 2.60, 0.25, 4.10, 80, exact_age=30, exact_mv=2.5)
+        add_p("Tanguy Nianzou", "Sevilla FC", "LaLiga", "DF", 22, 6.0, 1150, 0.06, 0.03, 0.05, 0.01, 2.25, 2.55, 0.35, 4.40, 85, True, "PSG Academy", exact_age=24, exact_mv=6.0)
+        add_p("Kike Salas", "Sevilla FC", "LaLiga", "DF", 22, 14.0, 1750, 0.08, 0.04, 0.08, 0.02, 2.20, 2.55, 0.30, 4.60, 87, True, "Cantera Sevilla FC", exact_age=24, exact_mv=14.0)
+        add_p("José Ángel Carmona", "Sevilla FC", "LaLiga", "DF", 22, 10.0, 2100, 0.05, 0.20, 0.04, 0.18, 2.25, 2.85, 1.20, 4.90, 86, True, "Cantera Sevilla FC", exact_age=24, exact_mv=10.0)
+        add_p("Juanlu Sánchez", "Sevilla FC", "LaLiga", "DF", 21, 22.0, 2100, 0.14, 0.30, 0.12, 0.28, 1.95, 2.65, 2.40, 5.80, 90, True, "Cantera Sevilla FC", exact_age=23, exact_mv=22.0)
+        add_p("Adrià Pedrosa", "Sevilla FC", "LaLiga", "DF", 26, 4.5, 1650, 0.06, 0.28, 0.04, 0.24, 1.80, 2.35, 1.90, 5.40, 81, exact_age=28, exact_mv=4.5)
+        add_p("Ramón Martínez", "Sevilla FC", "LaLiga", "DF", 22, 2.0, 600, 0.03, 0.02, 0.02, 0.01, 2.10, 2.40, 0.25, 4.20, 84, True, "Cantera Sevilla FC", exact_age=24, exact_mv=2.0)
+        add_p("Nemanja Gudelj", "Sevilla FC", "LaLiga", "MF", 33, 2.5, 1850, 0.08, 0.10, 0.08, 0.08, 2.20, 2.70, 0.40, 6.50, 80, exact_age=35, exact_mv=2.5)
+        add_p("Lucien Agoumé", "Sevilla FC", "LaLiga", "MF", 22, 15.0, 2050, 0.06, 0.16, 0.05, 0.14, 2.50, 3.20, 1.10, 7.20, 87, exact_age=24, exact_mv=15.0)
+        add_p("Djibril Sow", "Sevilla FC", "LaLiga", "MF", 27, 6.0, 1600, 0.12, 0.18, 0.10, 0.15, 2.00, 2.80, 1.30, 6.40, 82, exact_age=29, exact_mv=6.0)
+        add_p("Albert Sambi Lokonga", "Sevilla FC", "LaLiga", "MF", 25, 10.0, 1400, 0.10, 0.25, 0.08, 0.20, 1.90, 2.65, 1.70, 7.60, 85, True, "Anderlecht", exact_age=27, exact_mv=10.0)
+        add_p("Manu Bueno", "Sevilla FC", "LaLiga", "MF", 20, 5.0, 700, 0.08, 0.22, 0.06, 0.20, 1.65, 2.25, 1.20, 6.10, 85, True, "Cantera Sevilla FC", exact_age=22, exact_mv=5.0)
+        add_p("Alberto Collado", "Sevilla FC", "LaLiga", "MF", 19, 6.0, 750, 0.16, 0.28, 0.14, 0.24, 1.60, 2.25, 1.80, 6.20, 87, True, "Cantera Sevilla FC", exact_age=21, exact_mv=6.0)
+        add_p("Gerard Fernández 'Peque'", "Sevilla FC", "LaLiga", "MF", 22, 8.0, 1500, 0.38, 0.34, 0.34, 0.30, 0.95, 1.55, 2.60, 5.40, 87, True, "La Masia / Racing", exact_age=24, exact_mv=8.0)
+        add_p("Pedro Ortiz", "Sevilla FC", "LaLiga", "MF", 24, 1.5, 550, 0.08, 0.20, 0.06, 0.18, 1.70, 2.30, 1.10, 6.00, 83, True, "Cantera Sevilla FC", exact_age=26, exact_mv=1.5)
+        add_p("Dodi Lukebakio", "Sevilla FC", "LaLiga", "FW", 27, 18.0, 2200, 0.50, 0.24, 0.54, 0.22, 0.65, 1.15, 3.60, 4.20, 85, exact_age=29, exact_mv=18.0)
+        add_p("Isaac Romero", "Sevilla FC", "LaLiga", "FW", 24, 22.0, 2150, 0.54, 0.32, 0.50, 0.30, 0.85, 1.60, 2.40, 4.40, 88, True, "Cantera Sevilla FC", exact_age=26, exact_mv=22.0)
+        add_p("Chidera Ejuke", "Sevilla FC", "LaLiga", "FW", 26, 9.0, 1450, 0.34, 0.36, 0.32, 0.34, 0.75, 1.25, 4.50, 4.80, 84, exact_age=28, exact_mv=9.0)
+        add_p("Stanis Idumbo", "Sevilla FC", "LaLiga", "FW", 19, 10.0, 950, 0.38, 0.28, 0.40, 0.24, 0.65, 1.15, 3.40, 4.20, 89, True, "Cantera Sevilla FC", exact_age=21, exact_mv=10.0)
+        add_p("Suso Fernández", "Sevilla FC", "LaLiga", "FW", 31, 2.0, 900, 0.20, 0.44, 0.18, 0.40, 0.55, 1.10, 2.40, 7.80, 80, exact_age=33, exact_mv=2.0)
+        add_p("Mateo Mejía", "Sevilla FC", "LaLiga", "FW", 21, 3.0, 580, 0.40, 0.18, 0.38, 0.15, 0.55, 1.10, 2.20, 3.20, 85, True, "Cantera Sevilla FC", exact_age=23, exact_mv=3.0)
+    elif season_str == "2025/2026":
+        add_p("Ørjan Nyland", "Sevilla FC", "LaLiga", "GK", 34, 1.5, 2050, 0.00, 0.00, 0.00, 0.00, 0.20, 0.15, 0.05, 1.40, 80, exact_age=35, exact_mv=1.5)
+        add_p("Álvaro Fernández", "Sevilla FC", "LaLiga", "GK", 26, 2.8, 1000, 0.00, 0.00, 0.00, 0.00, 0.18, 0.12, 0.05, 1.30, 80, exact_age=27, exact_mv=2.8)
+        add_p("Loïc Badé", "Sevilla FC", "LaLiga", "DF", 24, 24.0, 2200, 0.05, 0.02, 0.04, 0.01, 2.40, 2.80, 0.40, 4.80, 87, exact_age=25, exact_mv=24.0)
+        add_p("Marcão", "Sevilla FC", "LaLiga", "DF", 28, 3.2, 1100, 0.04, 0.02, 0.03, 0.01, 2.15, 2.60, 0.25, 4.10, 80, exact_age=29, exact_mv=3.2)
+        add_p("Tanguy Nianzou", "Sevilla FC", "LaLiga", "DF", 22, 5.0, 1050, 0.06, 0.03, 0.05, 0.01, 2.20, 2.50, 0.35, 4.40, 85, True, "PSG Academy", exact_age=23, exact_mv=5.0)
+        add_p("Kike Salas", "Sevilla FC", "LaLiga", "DF", 22, 10.0, 1600, 0.08, 0.04, 0.08, 0.02, 2.15, 2.50, 0.30, 4.60, 86, True, "Cantera Sevilla FC", exact_age=23, exact_mv=10.0)
+        add_p("José Ángel Carmona", "Sevilla FC", "LaLiga", "DF", 22, 7.5, 2000, 0.05, 0.19, 0.04, 0.16, 2.15, 2.80, 1.20, 4.90, 85, True, "Cantera Sevilla FC", exact_age=23, exact_mv=7.5)
+        add_p("Juanlu Sánchez", "Sevilla FC", "LaLiga", "DF", 21, 18.0, 2000, 0.13, 0.29, 0.11, 0.26, 1.85, 2.60, 2.40, 5.80, 89, True, "Cantera Sevilla FC", exact_age=22, exact_mv=18.0)
+        add_p("Adrià Pedrosa", "Sevilla FC", "LaLiga", "DF", 26, 4.5, 1600, 0.06, 0.28, 0.04, 0.24, 1.75, 2.30, 1.90, 5.40, 81, exact_age=27, exact_mv=4.5)
+        add_p("Ramón Martínez", "Sevilla FC", "LaLiga", "DF", 22, 1.8, 550, 0.03, 0.02, 0.02, 0.01, 2.10, 2.40, 0.25, 4.20, 83, True, "Cantera Sevilla FC", exact_age=23, exact_mv=1.8)
+        add_p("Nemanja Gudelj", "Sevilla FC", "LaLiga", "MF", 33, 3.0, 1950, 0.08, 0.10, 0.08, 0.08, 2.20, 2.70, 0.40, 6.50, 80, exact_age=34, exact_mv=3.0)
+        add_p("Lucien Agoumé", "Sevilla FC", "LaLiga", "MF", 22, 11.0, 1950, 0.05, 0.15, 0.04, 0.13, 2.45, 3.15, 1.10, 7.20, 86, exact_age=23, exact_mv=11.0)
+        add_p("Djibril Sow", "Sevilla FC", "LaLiga", "MF", 27, 6.8, 1650, 0.12, 0.18, 0.10, 0.15, 1.95, 2.80, 1.30, 6.40, 82, exact_age=28, exact_mv=6.8)
+        add_p("Albert Sambi Lokonga", "Sevilla FC", "LaLiga", "MF", 25, 11.0, 1300, 0.10, 0.24, 0.08, 0.20, 1.85, 2.65, 1.70, 7.60, 85, True, "Anderlecht", exact_age=26, exact_mv=11.0)
+        add_p("Manu Bueno", "Sevilla FC", "LaLiga", "MF", 20, 3.0, 600, 0.08, 0.20, 0.06, 0.19, 1.60, 2.20, 1.20, 6.10, 84, True, "Cantera Sevilla FC", exact_age=21, exact_mv=3.0)
+        add_p("Alberto Collado", "Sevilla FC", "LaLiga", "MF", 19, 4.5, 620, 0.15, 0.27, 0.13, 0.23, 1.58, 2.22, 1.80, 6.15, 86, True, "Cantera Sevilla FC", exact_age=20, exact_mv=4.5)
+        add_p("Gerard Fernández 'Peque'", "Sevilla FC", "LaLiga", "MF", 22, 6.5, 1400, 0.37, 0.33, 0.33, 0.29, 0.92, 1.52, 2.60, 5.40, 86, True, "La Masia / Racing", exact_age=23, exact_mv=6.5)
+        add_p("Pedro Ortiz", "Sevilla FC", "LaLiga", "MF", 24, 1.2, 500, 0.08, 0.19, 0.06, 0.17, 1.68, 2.28, 1.10, 6.00, 82, True, "Cantera Sevilla FC", exact_age=25, exact_mv=1.2)
+        add_p("Dodi Lukebakio", "Sevilla FC", "LaLiga", "FW", 27, 16.0, 2180, 0.49, 0.25, 0.53, 0.22, 0.62, 1.12, 3.60, 4.20, 84, exact_age=28, exact_mv=16.0)
+        add_p("Isaac Romero", "Sevilla FC", "LaLiga", "FW", 24, 20.0, 2100, 0.53, 0.31, 0.49, 0.29, 0.85, 1.60, 2.40, 4.40, 87, True, "Cantera Sevilla FC", exact_age=25, exact_mv=20.0)
+        add_p("Chidera Ejuke", "Sevilla FC", "LaLiga", "FW", 26, 8.5, 1380, 0.33, 0.35, 0.31, 0.33, 0.72, 1.22, 4.50, 4.80, 83, exact_age=27, exact_mv=8.5)
+        add_p("Stanis Idumbo", "Sevilla FC", "LaLiga", "FW", 19, 8.0, 800, 0.36, 0.26, 0.39, 0.22, 0.62, 1.12, 3.30, 4.15, 88, True, "Cantera Sevilla FC", exact_age=20, exact_mv=8.0)
+        add_p("Suso Fernández", "Sevilla FC", "LaLiga", "FW", 31, 2.5, 940, 0.21, 0.44, 0.19, 0.41, 0.55, 1.10, 2.40, 7.80, 81, exact_age=32, exact_mv=2.5)
+        add_p("Mateo Mejía", "Sevilla FC", "LaLiga", "FW", 21, 2.2, 500, 0.38, 0.17, 0.36, 0.14, 0.55, 1.05, 2.10, 3.10, 84, True, "Cantera Sevilla FC", exact_age=22, exact_mv=2.2)
+    else:  # 2024/2025
+        add_p("Ørjan Nyland", "Sevilla FC", "LaLiga", "GK", 34, 1.8, 2200, 0.00, 0.00, 0.00, 0.00, 0.20, 0.15, 0.05, 1.40, 80)
+        add_p("Álvaro Fernández", "Sevilla FC", "LaLiga", "GK", 26, 2.5, 850, 0.00, 0.00, 0.00, 0.00, 0.18, 0.12, 0.05, 1.30, 80)
+        add_p("Loïc Badé", "Sevilla FC", "LaLiga", "DF", 24, 20.0, 2100, 0.05, 0.02, 0.04, 0.01, 2.30, 2.80, 0.40, 4.80, 87)
+        add_p("Marcão", "Sevilla FC", "LaLiga", "DF", 28, 4.0, 1100, 0.04, 0.02, 0.03, 0.01, 2.15, 2.60, 0.25, 4.10, 80)
+        add_p("Tanguy Nianzou", "Sevilla FC", "LaLiga", "DF", 22, 4.0, 950, 0.06, 0.03, 0.05, 0.01, 2.20, 2.50, 0.35, 4.40, 85, True, "PSG Academy")
+        add_p("Kike Salas", "Sevilla FC", "LaLiga", "DF", 22, 6.0, 1450, 0.08, 0.04, 0.08, 0.02, 2.10, 2.45, 0.30, 4.60, 86, True, "Cantera Sevilla FC")
+        add_p("José Ángel Carmona", "Sevilla FC", "LaLiga", "DF", 22, 5.0, 1950, 0.04, 0.18, 0.03, 0.15, 2.10, 2.80, 1.20, 4.90, 85, True, "Cantera Sevilla FC")
+        add_p("Juanlu Sánchez", "Sevilla FC", "LaLiga", "DF", 21, 15.0, 1900, 0.12, 0.28, 0.10, 0.25, 1.80, 2.60, 2.40, 5.80, 89, True, "Cantera Sevilla FC")
+        add_p("Adrià Pedrosa", "Sevilla FC", "LaLiga", "DF", 26, 4.5, 1600, 0.06, 0.28, 0.04, 0.24, 1.75, 2.30, 1.90, 5.40, 81)
+        add_p("Valentín Barco", "Sevilla FC", "LaLiga", "DF", 20, 12.0, 900, 0.08, 0.35, 0.05, 0.30, 1.65, 2.40, 2.80, 6.80, 88, True, "Boca Predio")
+        add_p("Nemanja Gudelj", "Sevilla FC", "LaLiga", "MF", 33, 3.5, 2050, 0.08, 0.10, 0.08, 0.08, 2.20, 2.70, 0.40, 6.50, 80)
+        add_p("Lucien Agoumé", "Sevilla FC", "LaLiga", "MF", 22, 8.0, 1850, 0.05, 0.15, 0.04, 0.12, 2.40, 3.10, 1.10, 7.20, 86)
+        add_p("Djibril Sow", "Sevilla FC", "LaLiga", "MF", 27, 7.5, 1700, 0.12, 0.18, 0.10, 0.15, 1.95, 2.80, 1.30, 6.40, 82)
+        add_p("Albert Sambi Lokonga", "Sevilla FC", "LaLiga", "MF", 25, 12.0, 1250, 0.10, 0.24, 0.08, 0.20, 1.85, 2.65, 1.70, 7.60, 85, True, "Anderlecht")
+        add_p("Saúl Ñíguez", "Sevilla FC", "LaLiga", "MF", 29, 5.0, 1200, 0.14, 0.18, 0.12, 0.15, 1.70, 2.50, 1.10, 5.40, 80)
+        add_p("Manu Bueno", "Sevilla FC", "LaLiga", "MF", 20, 1.5, 450, 0.08, 0.20, 0.06, 0.18, 1.60, 2.20, 1.20, 6.10, 84, True, "Cantera Sevilla FC")
+        add_p("Dodi Lukebakio", "Sevilla FC", "LaLiga", "FW", 27, 15.0, 2150, 0.48, 0.25, 0.52, 0.22, 0.60, 1.10, 3.60, 4.20, 84)
+        add_p("Isaac Romero", "Sevilla FC", "LaLiga", "FW", 24, 18.0, 2050, 0.52, 0.30, 0.48, 0.28, 0.85, 1.60, 2.40, 4.40, 87, True, "Cantera Sevilla FC")
+        add_p("Chidera Ejuke", "Sevilla FC", "LaLiga", "FW", 26, 8.0, 1300, 0.32, 0.35, 0.30, 0.32, 0.70, 1.20, 4.50, 4.80, 83)
+        add_p("Gerard Fernández 'Peque'", "Sevilla FC", "LaLiga", "FW", 22, 5.0, 1350, 0.36, 0.32, 0.32, 0.28, 0.90, 1.50, 2.60, 5.40, 86, True, "La Masia / Racing")
+        add_p("Suso Fernández", "Sevilla FC", "LaLiga", "FW", 31, 3.0, 980, 0.22, 0.45, 0.20, 0.42, 0.55, 1.10, 2.40, 7.80, 81)
+        add_p("Kelechi Iheanacho", "Sevilla FC", "LaLiga", "FW", 28, 9.0, 800, 0.45, 0.18, 0.42, 0.15, 0.35, 0.75, 1.60, 2.80, 81, True, "Man City Academy")
+        add_p("Stanis Idumbo", "Sevilla FC", "LaLiga", "FW", 19, 6.0, 650, 0.35, 0.25, 0.38, 0.20, 0.60, 1.10, 3.20, 4.10, 88, True, "Cantera Sevilla FC")
+        add_p("Alberto Collado", "Sevilla FC", "LaLiga", "MF", 19, 3.5, 490, 0.15, 0.26, 0.12, 0.22, 1.55, 2.20, 1.80, 6.10, 86, True, "Cantera Sevilla FC")
 
     # 2. REAL BETIS (PLANTILLA COMPLETA Y OFICIAL)
     add_p("Rui Silva", "Real Betis", "LaLiga", "GK", 30, 8.0, 2200, 0.00, 0.00, 0.00, 0.00, 0.20, 0.10, 0.05, 1.20, 82)
@@ -112,7 +201,7 @@ def generate_worldwide_player_network() -> pd.DataFrame:
     add_p("Assane Diao", "Real Betis", "LaLiga", "FW", 19, 12.0, 980, 0.38, 0.18, 0.35, 0.15, 0.70, 1.20, 2.90, 3.80, 87, True, "Cantera Real Betis")
 
     # 3. REAL MADRID
-    add_p("Thibaut Courtois", "Real Madrid", "LaLiga", "GK", 32, 28.0, 2100, 0.00, 0.00, 0.00, 0.00, 0.20, 0.10, 0.05, 1.20, 89)
+    add_p("Thibaut Courtois", "Real Madrid", "LaLiga", "GK", 32, 28.0, 2100, 0.00, 0.00, 0.00, 0.00, 0.20, 0.10, 0.05, 1.20, 89, exact_mv=25.0 if season_str == "2026/2027" else (26.0 if season_str == "2025/2026" else 28.0))
     add_p("Andriy Lunin", "Real Madrid", "LaLiga", "GK", 25, 25.0, 1200, 0.00, 0.00, 0.00, 0.00, 0.18, 0.10, 0.05, 1.30, 85)
     add_p("Dani Carvajal", "Real Madrid", "LaLiga", "DF", 32, 12.0, 1800, 0.10, 0.30, 0.08, 0.28, 2.10, 2.60, 1.50, 6.20, 87, True, "La Fábrica")
     add_p("Lucas Vázquez", "Real Madrid", "LaLiga", "DF", 33, 4.0, 1650, 0.12, 0.35, 0.10, 0.32, 1.70, 2.20, 1.80, 5.80, 82, True, "La Fábrica")
@@ -135,7 +224,7 @@ def generate_worldwide_player_network() -> pd.DataFrame:
     add_p("Endrick", "Real Madrid", "LaLiga", "FW", 18, 60.0, 720, 0.65, 0.18, 0.70, 0.15, 0.40, 0.90, 3.10, 2.80, 93, True, "Palmeiras / Real Madrid")
 
     # 4. FC BARCELONA
-    add_p("Marc-André ter Stegen", "Barcelona", "LaLiga", "GK", 32, 20.0, 700, 0.00, 0.00, 0.00, 0.00, 0.20, 0.10, 0.05, 1.50, 87)
+    add_p("Marc-André ter Stegen", "Barcelona", "LaLiga", "GK", 32, 20.0, 1800, 0.00, 0.00, 0.00, 0.00, 0.20, 0.10, 0.05, 1.50, 87, exact_mv=18.0 if season_str == "2026/2027" else 20.0)
     add_p("Iñaki Peña", "Barcelona", "LaLiga", "GK", 25, 8.0, 1800, 0.00, 0.00, 0.00, 0.00, 0.18, 0.10, 0.05, 1.30, 82, True, "La Masia")
     add_p("Jules Koundé", "Barcelona", "LaLiga", "DF", 26, 55.0, 2350, 0.08, 0.28, 0.06, 0.25, 2.10, 2.65, 1.80, 6.20, 88, True, "Bordeaux Academy")
     add_p("Pau Cubarsí", "Barcelona", "LaLiga", "DF", 17, 40.0, 1950, 0.02, 0.10, 0.01, 0.08, 2.40, 2.10, 0.45, 8.90, 93, True, "La Masia")
@@ -160,7 +249,7 @@ def generate_worldwide_player_network() -> pd.DataFrame:
     add_p("Pau Víctor", "Barcelona", "LaLiga", "FW", 23, 5.0, 650, 0.45, 0.18, 0.40, 0.15, 0.60, 1.15, 2.10, 3.60, 85, True, "Girona / La Masia")
 
     # 5. ATLÉTICO DE MADRID
-    add_p("Jan Oblak", "Atletico Madrid", "LaLiga", "GK", 31, 28.0, 2400, 0.00, 0.00, 0.00, 0.00, 0.18, 0.12, 0.02, 1.10, 88)
+    add_p("Jan Oblak", "Atletico Madrid", "LaLiga", "GK", 31, 28.0, 2400, 0.00, 0.00, 0.00, 0.00, 0.18, 0.12, 0.02, 1.10, 88, exact_mv=24.0 if season_str == "2026/2027" else 26.0)
     add_p("Juan Musso", "Atletico Madrid", "LaLiga", "GK", 30, 5.0, 450, 0.00, 0.00, 0.00, 0.00, 0.18, 0.10, 0.05, 1.20, 81, True, "Racing Club")
     add_p("Nahuel Molina", "Atletico Madrid", "LaLiga", "DF", 26, 28.0, 1750, 0.08, 0.25, 0.06, 0.22, 1.70, 2.40, 1.80, 5.10, 83, True, "Boca Juniors")
     add_p("Robin Le Normand", "Atletico Madrid", "LaLiga", "DF", 28, 40.0, 2200, 0.04, 0.03, 0.05, 0.02, 2.30, 2.60, 0.20, 5.10, 86)
@@ -179,6 +268,8 @@ def generate_worldwide_player_network() -> pd.DataFrame:
     add_p("Julián Álvarez", "Atletico Madrid", "LaLiga", "FW", 24, 75.0, 2100, 0.52, 0.30, 0.55, 0.28, 0.85, 1.40, 2.20, 4.80, 91, True, "River Plate")
     add_p("Alexander Sørloth", "Atletico Madrid", "LaLiga", "FW", 28, 25.0, 1650, 0.65, 0.16, 0.68, 0.14, 0.40, 0.80, 1.30, 2.60, 84)
     add_p("Ángel Correa", "Atletico Madrid", "LaLiga", "FW", 29, 18.0, 1200, 0.48, 0.32, 0.50, 0.28, 0.70, 1.30, 2.90, 4.50, 83, True, "San Lorenzo")
+    if season_str in ["2026/2027", "2025/2026"]:
+        add_p("Saúl Ñíguez", "Atletico Madrid", "LaLiga", "MF", 29, 4.0, 1100, 0.12, 0.15, 0.10, 0.12, 1.80, 2.40, 1.00, 5.20, 80, exact_age=31 if season_str == "2026/2027" else 30, exact_mv=4.0)
 
     # 6. ATHLETIC CLUB
     add_p("Unai Simón", "Athletic Club", "LaLiga", "GK", 27, 30.0, 1600, 0.00, 0.00, 0.00, 0.00, 0.20, 0.10, 0.05, 1.30, 87, True, "Lezama")
@@ -540,35 +631,58 @@ def generate_worldwide_player_network() -> pd.DataFrame:
     return df
 
 
-def build_and_save_global_database() -> pd.DataFrame:
-    """Genera y guarda en disco la base de datos mundial persistida."""
+def generate_all_seasons_network() -> pd.DataFrame:
+    """Genera el DataFrame consolidado con las tres temporadas completas (2026/2027, 2025/2026, 2024/2025)."""
+    dfs = [
+        generate_worldwide_player_network("2026/2027"),
+        generate_worldwide_player_network("2025/2026"),
+        generate_worldwide_player_network("2024/2025")
+    ]
+    return pd.concat(dfs, ignore_index=True)
+
+
+def build_and_save_global_database(season: Optional[str] = "2026/2027") -> pd.DataFrame:
+    """Genera y guarda en disco la base de datos mundial persistida multitemporada."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    df = generate_worldwide_player_network()
-    df.to_csv(CSV_PATH, index=False, encoding="utf-8")
+    full_df = generate_all_seasons_network()
+    full_df.to_csv(CSV_PATH, index=False, encoding="utf-8")
     try:
         engine = get_postgres_engine()
         if engine:
-            df.to_sql("analytics_scouting_metrics", engine, if_exists="replace", index=False)
+            full_df.to_sql("analytics_scouting_metrics", engine, if_exists="replace", index=False)
     except Exception:
         pass
-    print(f"Base de datos global generada y guardada en {CSV_PATH}: {len(df)} futbolistas registrados.")
-    return df
+    print(f"Base de datos global generada y guardada en {CSV_PATH}: {len(full_df)} futbolistas registrados (multitemporada).")
+    target = str(season).strip()[:9] if season and season != "all" else None
+    if target:
+        sub = full_df[full_df["season"] == target].copy()
+        if not sub.empty:
+            return sub
+    return full_df
 
 
-def load_global_players(force_refresh: bool = False) -> pd.DataFrame:
+def load_global_players(season: Optional[str] = "2026/2027", force_refresh: bool = False) -> pd.DataFrame:
     """
-    Carga la base de datos global de futbolistas.
+    Carga la base de datos global de futbolistas para la temporada solicitada (por defecto 2026/2027).
     Prioridad:
       1. CSV local 'data/processed/global_players_database.csv'
-      2. PostgreSQL tabla 'analytics_scouting_metrics' (si existe y tiene >100 registros)
+      2. PostgreSQL tabla 'analytics_scouting_metrics'
       3. Generación en tiempo de ejecución
     """
+    target = str(season).strip()[:9] if season and season != "all" else None
+
     if not force_refresh:
         if CSV_PATH.exists():
             try:
                 csv_df = pd.read_csv(CSV_PATH)
-                if not csv_df.empty and len(csv_df) >= 200:
-                    return csv_df
+                if not csv_df.empty:
+                    if "season" in csv_df.columns:
+                        if target:
+                            sub = csv_df[csv_df["season"] == target].copy()
+                            if not sub.empty and len(sub) >= 100:
+                                return sub
+                        else:
+                            return csv_df
             except Exception:
                 pass
 
@@ -576,21 +690,32 @@ def load_global_players(force_refresh: bool = False) -> pd.DataFrame:
         if engine:
             try:
                 db_df = pd.read_sql("SELECT * FROM analytics_scouting_metrics", engine)
-                if not db_df.empty and len(db_df) >= 200:
-                    return db_df
+                if not db_df.empty:
+                    if "season" in db_df.columns:
+                        if target:
+                            sub = db_df[db_df["season"] == target].copy()
+                            if not sub.empty and len(sub) >= 100:
+                                return sub
+                        else:
+                            return db_df
             except Exception:
                 pass
 
-    return build_and_save_global_database()
+    return build_and_save_global_database(season=target or "2026/2027")
 
 
 def sync_global_database_to_postgres(df: Optional[pd.DataFrame] = None) -> int:
     """
-    Sincroniza la base de datos global con PostgreSQL:
-    Actualiza 'dim_teams', 'dim_players' y la tabla consolidada 'analytics_scouting_metrics'.
+    Sincroniza la base de datos global multitemporada con PostgreSQL:
+    Actualiza la tabla consolidada 'analytics_scouting_metrics'.
     """
     if df is None:
-        df = build_and_save_global_database()
+        full_df = generate_all_seasons_network()
+    else:
+        if "season" not in df.columns or df["season"].nunique() <= 1:
+            full_df = generate_all_seasons_network()
+        else:
+            full_df = df
 
     engine = get_postgres_engine()
     if not engine:
@@ -598,9 +723,9 @@ def sync_global_database_to_postgres(df: Optional[pd.DataFrame] = None) -> int:
         return 0
 
     try:
-        df.to_sql("analytics_scouting_metrics", engine, if_exists="replace", index=False)
-        print(f"Sincronizados {len(df)} futbolistas en PostgreSQL (analytics_scouting_metrics).")
-        return len(df)
+        full_df.to_sql("analytics_scouting_metrics", engine, if_exists="replace", index=False)
+        print(f"Sincronizados {len(full_df)} registros multitemporada en PostgreSQL (analytics_scouting_metrics).")
+        return len(full_df)
     except Exception as e:
         print(f"Error sincronizando con PostgreSQL: {e}")
         return 0
@@ -608,4 +733,4 @@ def sync_global_database_to_postgres(df: Optional[pd.DataFrame] = None) -> int:
 
 if __name__ == "__main__":
     df = build_and_save_global_database()
-    sync_global_database_to_postgres(df)
+    sync_global_database_to_postgres()

@@ -81,6 +81,56 @@ def test_sevilla_fc_and_major_clubs_rosters(global_df):
         assert len(sub) >= min_size, f"{club} tiene menos de {min_size} jugadores ({len(sub)})"
 
 
+def test_multi_season_support():
+    """
+    Verifica que la base de datos soporte y actualice dinámicamente las temporadas
+    2026/2027 (en curso), 2025/2026 y 2024/2025.
+    En 2026/2027:
+      - Loïc Badé tiene 26 años y 28M€
+      - Dodi Lukebakio tiene 29 años y 18M€
+      - Isaac Romero tiene 26 años y 22M€
+      - Stanis Idumbo y Alberto Collado tienen 21 años
+      - Jesús Navas no está en la plantilla activa (retirado)
+      - Saúl Ñíguez no está en el Sevilla FC
+      - La plantilla de Sevilla FC tiene exactamente 24 futbolistas
+    """
+    df_2627 = load_global_players(season="2026/2027")
+    sev_2627 = df_2627[df_2627["team_name"] == "Sevilla FC"]
+    assert len(sev_2627) == 24
+    assert "Jesús Navas" not in sev_2627["player_name"].values
+    assert "Saúl Ñíguez" not in sev_2627["player_name"].values
+
+    bade_2627 = sev_2627[sev_2627["player_name"] == "Loïc Badé"].iloc[0]
+    assert bade_2627["age"] == 26
+    assert bade_2627["market_value_m"] >= 25.0
+
+    luke_2627 = sev_2627[sev_2627["player_name"] == "Dodi Lukebakio"].iloc[0]
+    assert luke_2627["age"] == 29
+
+    romero_2627 = sev_2627[sev_2627["player_name"] == "Isaac Romero"].iloc[0]
+    assert romero_2627["age"] == 26
+
+    idumbo_2627 = sev_2627[sev_2627["player_name"] == "Stanis Idumbo"].iloc[0]
+    assert idumbo_2627["age"] == 21
+
+    collado_2627 = sev_2627[sev_2627["player_name"] == "Alberto Collado"].iloc[0]
+    assert collado_2627["age"] == 21
+
+    # Temporada 2025/2026
+    df_2526 = load_global_players(season="2025/2026")
+    sev_2526 = df_2526[df_2526["team_name"] == "Sevilla FC"]
+    assert len(sev_2526) == 24
+    bade_2526 = sev_2526[sev_2526["player_name"] == "Loïc Badé"].iloc[0]
+    assert bade_2526["age"] == 25
+
+    # Temporada 2024/2025
+    df_2425 = load_global_players(season="2024/2025")
+    sev_2425 = df_2425[df_2425["team_name"] == "Sevilla FC"]
+    assert len(sev_2425) == 24
+    bade_2425 = sev_2425[sev_2425["player_name"] == "Loïc Badé"].iloc[0]
+    assert bade_2425["age"] == 24
+
+
 # =============================================================================
 # 2. AUDITORÍA DEL MOTOR DE PERFILADO (GOALKEEPERS, HEATMAPS, PIZZA PLOTS)
 # =============================================================================
