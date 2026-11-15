@@ -45,27 +45,27 @@ class PlayerProfiler:
 
         # 1. SHO (Finalización)
         sho_metric = (xg * 0.6) + (goals * 0.4)
-        sho = self._scale_to_stat(sho_metric, 0.05, 0.85, floor=48, ceiling=97)
+        sho = self._scale_to_stat(sho_metric, 0.05, 0.70, floor=58, ceiling=97)
 
         # 2. PAS (Pase y Creación)
         pas_metric = (xa * 0.5) + (assists * 0.25) + (prog_passes * 0.05)
-        pas = self._scale_to_stat(pas_metric, 0.08, 0.85, floor=52, ceiling=96)
+        pas = self._scale_to_stat(pas_metric, 0.08, 0.65, floor=58, ceiling=96)
 
         # 3. DRI (Regate y Desequilibrio)
         dri_metric = (dribbles * 0.7) + (xa * 1.5)
-        dri = self._scale_to_stat(dri_metric, 0.5, 4.8, floor=50, ceiling=98)
+        dri = self._scale_to_stat(dri_metric, 0.5, 3.8, floor=58, ceiling=98)
 
         # 4. DEF (Defensa y Recuperación)
         def_metric = (interc * 0.55) + (tackles * 0.45)
-        deff = self._scale_to_stat(def_metric, 0.4, 2.8, floor=45, ceiling=95)
+        deff = self._scale_to_stat(def_metric, 0.3, 2.6, floor=50, ceiling=96)
 
         # 5. PAC (Ritmo y Progresión)
-        pac_metric = (dribbles * 0.5) + (prog_passes * 0.3)
-        pac = self._scale_to_stat(pac_metric, 1.0, 5.5, floor=55, ceiling=98)
+        pac_metric = (dribbles * 0.6) + (prog_passes * 0.25) + (xg * 1.0)
+        pac = self._scale_to_stat(pac_metric, 0.8, 4.0, floor=60, ceiling=98)
 
         # 6. PHY (Físico y Duelos)
         phy_metric = (tackles * 0.4) + (interc * 0.3) + (mins / 2500.0 * 0.8)
-        phy = self._scale_to_stat(phy_metric, 0.8, 2.5, floor=54, ceiling=93)
+        phy = self._scale_to_stat(phy_metric, 0.7, 2.4, floor=56, ceiling=94)
 
         # 7. OVR (Overall Ponderado por posición)
         if "FW" in pos:
@@ -188,7 +188,7 @@ class PlayerProfiler:
                 continue
 
             # Convertir distancia euclidiana en porcentaje de similitud (99% = idéntico)
-            sim_pct = round(float(np.clip(100.0 - (d * 14.5), 60.0, 99.2)), 1)
+            sim_pct = round(float(np.clip(100.0 - (d * 8.5), 60.0, 99.2)), 1)
             target_mv = float(target.get("market_value_m", 10.0))
             cand_mv = float(cand.get("market_value_m", 10.0))
             saving_m = round(target_mv - cand_mv, 1)

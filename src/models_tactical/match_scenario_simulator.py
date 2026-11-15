@@ -1,0 +1,228 @@
+from typing import Dict, List, Any, Optional, Tuple
+import numpy as np
+import pandas as pd
+from src.models_analytics.poisson_model import DixonColesModel
+
+
+class MatchScenarioSimulator:
+    """
+    Simulador de Escenarios en Tiempo Real ('Digital Twin' táctico estilo NFL).
+    Simula situaciones de partido minuto a minuto (1-90) comparando:
+      1. La táctica y formación elegida por el Míster.
+      2. La contra-táctica óptima sugerida por la IA para explotar debilidades del rival.
+      3. El comportamiento y fortalezas del equipo rival.
+    Entrega el relato de jugadas, línea temporal de xG, mapa de ocasiones por zonas
+    y detección de grietas tácticas propias y ajenas.
+    """
+
+    def __init__(self, poisson_model: Optional[DixonColesModel] = None):
+        self.poisson = poisson_model or DixonColesModel()
+
+    def simulate_situational_match(
+        self,
+        home_team: str,
+        away_team: str,
+        coach_formation: str = "4-3-3",
+        coach_style: str = "Posesión y Bloque Alto",
+        coach_pressing: float = 7.5,
+        opponent_profile: Optional[Dict[str, Any]] = None,
+        seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Simula un partido completo minuto a minuto evaluando la interacción
+        entre la táctica del míster, la contra-propuesta de la IA y el rival.
+        """
+        if seed is not None:
+            np.random.seed(seed)
+
+        opp = opponent_profile or {
+            "defense_weakness": 1.15,
+            "attack_threat": 1.10,
+            "pressing_intensity": 8.0,
+            "high_line_vulnerability": 0.70,
+            "style": "Presión Alta y Defensa Adelantada"
+        }
+
+        # 1. EVALUAR AJUSTE DE LA TÁCTICA DEL MÍSTER
+        # Si el míster juega posesión contra presión asfixiante, riesgo de pérdidas en salida
+        mister_off_boost = 1.0
+        mister_def_risk = 1.0
+
+        if "Posesión" in coach_style and opp["pressing_intensity"] >= 8.0:
+            mister_def_risk += 0.20  # Riesgo de robo rival en tres cuartos
+        elif "Contragolpe" in coach_style and opp["high_line_vulnerability"] >= 0.60:
+            mister_off_boost += 0.28  # Castigo severo a la espalda rival
+        elif "5-" in coach_formation or "3-" in coach_formation:
+            mister_def_risk -= 0.15  # Mayor blindaje en transiciones
+
+        # 2. CALCULAR CONTRA-TÁCTICA RECOMENDADA POR LA IA
+        ai_recommendation = self._compute_ai_counter_strategy(opp)
+
+        # 3. TASAS DE GOL ESPERADO (LAMBDA Y MU)
+        lam_mister = max(0.4, (1.30 * mister_off_boost) * (opp["defense_weakness"]))
+        mu_mister = max(0.4, (1.10 * mister_def_risk) * (opp["attack_threat"]))
+
+        lam_ai = max(0.4, (1.30 * ai_recommendation["off_multiplier"]) * (opp["defense_weakness"]))
+        mu_ai = max(0.4, (1.10 * ai_recommendation["def_multiplier"]) * (opp["attack_threat"]))
+
+        # 4. SIMULACIÓN MINUTO A MINUTO (90 MINUTOS)
+        match_events_mister, xg_timeline_mister, score_mister = self._simulate_90_minutes(
+            home_team, away_team, lam_mister, mu_mister, coach_style, opp["style"]
+        )
+        match_events_ai, xg_timeline_ai, score_ai = self._simulate_90_minutes(
+            home_team, away_team, lam_ai, mu_ai, ai_recommendation["style"], opp["style"]
+        )
+
+        # 5. DETECCIÓN DE VULNERABILIDADES PROPIAS Y AJENAS
+        flaws_detected = self._audit_tactical_vulnerabilities(coach_formation, coach_style, opp)
+
+        return {
+            "matchup": f"{home_team} vs {away_team}",
+            "coach_tactics": {
+                "formation": coach_formation,
+                "style": coach_style,
+                "pressing": coach_pressing,
+                "expected_lambda": round(lam_mister, 2),
+                "expected_mu": round(mu_mister, 2),
+                "simulated_score": score_mister,
+                "events_log": match_events_mister,
+                "xg_timeline": xg_timeline_mister,
+            },
+            "ai_counter_tactics": {
+                "recommended_formation": ai_recommendation["formation"],
+                "recommended_style": ai_recommendation["style"],
+                "tactical_rationale": ai_recommendation["rationale"],
+                "expected_lambda": round(lam_ai, 2),
+                "expected_mu": round(mu_ai, 2),
+                "simulated_score": score_ai,
+                "events_log": match_events_ai,
+                "xg_timeline": xg_timeline_ai,
+            },
+            "own_vulnerabilities_alert": flaws_detected,
+        }
+
+    def _compute_ai_counter_strategy(self, opp: Dict[str, Any]) -> Dict[str, Any]:
+        """Calcula la formación y estilo óptimo para contrarrestar los patrones rivales."""
+        if opp.get("high_line_vulnerability", 0.5) >= 0.65:
+            return {
+                "formation": "5-3-2 Contragolpe",
+                "style": "Transición Rápida y Balones al Espacio",
+                "rationale": "El rival presiona muy arriba dejando 45 metros a la espalda de sus centrales. Doble punta rápido y bloque medio-bajo para castigar con pases directos.",
+                "off_multiplier": 1.35,
+                "def_multiplier": 0.80,
+            }
+        elif opp.get("low_block_tendency", 0.5) >= 0.60:
+            return {
+                "formation": "4-2-3-1 Sobrecarga",
+                "style": "Apertura a Bandas y Pase Atrás (Cutbacks)",
+                "rationale": "Rival encerrado en su área. Necesitamos extremos muy abiertos para estirar la zaga y filtrar balones tensos hacia la frontal.",
+                "off_multiplier": 1.25,
+                "def_multiplier": 0.88,
+            }
+        else:
+            return {
+                "formation": "4-3-3 Dinámico",
+                "style": "Presión Tras Pérdida y Control en Bloque Medio",
+                "rationale": "Rival con fortaleza en el medio campo. Reforzar el triángulo de pivotes para dominar segundas jugadas y evitar contragolpes.",
+                "off_multiplier": 1.20,
+                "def_multiplier": 0.90,
+            }
+
+    def _simulate_90_minutes(
+        self,
+        home: str,
+        away: str,
+        lam: float,
+        mu: float,
+        home_style: str,
+        away_style: str
+    ) -> Tuple[List[Dict[str, Any]], pd.DataFrame, str]:
+        """Genera el motor estocástico posesión a posesión de 90 minutos."""
+        events = []
+        home_goals = 0
+        away_goals = 0
+        cum_xg_home = 0.0
+        cum_xg_away = 0.0
+
+        timeline_data = []
+
+        # Tasa de llegada por minuto (aproximada para 90 min)
+        p_home_chance = lam / 90.0 * 2.8
+        p_away_chance = mu / 90.0 * 2.8
+
+        zones = ["Banda Izquierda", "Carril Central / Frontal", "Banda Derecha", "Balón Parado / Córner"]
+
+        for minute in range(1, 91):
+            # Ocasión de equipo local
+            if np.random.rand() < p_home_chance:
+                shot_xg = round(float(np.random.beta(2, 6) * 0.75), 2)
+                cum_xg_home += shot_xg
+                zone = np.random.choice(zones, p=[0.35, 0.40, 0.20, 0.05])
+
+                is_goal = np.random.rand() < shot_xg
+                if is_goal:
+                    home_goals += 1
+                    desc = f"⚽ ¡GOL DE {home}! Remate certero desde {zone} tras jugada generada con {home_style}."
+                else:
+                    desc = f"Ocasión manifiesta de {home} desde {zone} (xG: {shot_xg:.2f}). Despeja la defensa rival."
+
+                events.append({"minute": minute, "team": home, "zone": zone, "xg": shot_xg, "is_goal": is_goal, "desc": desc})
+
+            # Ocasión de equipo visitante
+            if np.random.rand() < p_away_chance:
+                shot_xg_away = round(float(np.random.beta(2, 6) * 0.70), 2)
+                cum_xg_away += shot_xg_away
+                zone_away = np.random.choice(zones, p=[0.25, 0.45, 0.25, 0.05])
+
+                is_goal_away = np.random.rand() < shot_xg_away
+                if is_goal_away:
+                    away_goals += 1
+                    desc_away = f"⚽ ¡GOL DE {away}! Golpe rival por {zone_away} explotando {away_style}."
+                else:
+                    desc_away = f"Disparo peligroso de {away} en {zone_away} (xG: {shot_xg_away:.2f}). Detiene el guardameta."
+
+                events.append({"minute": minute, "team": away, "zone": zone_away, "xg": shot_xg_away, "is_goal": is_goal_away, "desc": desc_away})
+
+            timeline_data.append({
+                "minute": minute,
+                "xg_home": round(cum_xg_home, 2),
+                "xg_away": round(cum_xg_away, 2),
+                "score": f"{home_goals} - {away_goals}"
+            })
+
+        score_str = f"{home_goals} - {away_goals}"
+        return events, pd.DataFrame(timeline_data), score_str
+
+    def _audit_tactical_vulnerabilities(
+        self,
+        formation: str,
+        style: str,
+        opp: Dict[str, Any]
+    ) -> List[Dict[str, str]]:
+        """Identifica fallos estructurales en la pizarra propia frente a este rival."""
+        flaws = []
+        if "4-3-3" in formation and "Posesión" in style and opp.get("pressing_intensity", 7.0) >= 8.0:
+            flaws.append({
+                "zona": "Salida de Balón Propia",
+                "gravedad": "Alta",
+                "descripcion": "El rival presiona con 3 efectivos en primer tercio; riesgo crítico de pérdida en iniciación de centrales.",
+                "solucion_ia": "Instruir al portero envío largo a la peinada del extremo o incrustar a un mediocentro como tercer central en fase de salida."
+            })
+
+        if "Posesión" in style and opp.get("attack_threat", 1.0) >= 1.20:
+            flaws.append({
+                "zona": "Espalda de Laterales",
+                "gravedad": "Media",
+                "descripcion": "Laterales proyectados en campo rival conceden autopistas en repliegue ante contragolpes veloces.",
+                "solucion_ia": "Pautar repliegue asimétrico: si sube el lateral izquierdo, el derecho se mantiene cerrado junto a centrales."
+            })
+
+        if not flaws:
+            flaws.append({
+                "zona": "Estructura Global",
+                "gravedad": "Baja",
+                "descripcion": "Estructura posicional equilibrada; vigilar vigilancia en segundas jugadas de córner.",
+                "solucion_ia": "Mantener concentración y dos jugadores en rechace perimetral."
+            })
+
+        return flaws
