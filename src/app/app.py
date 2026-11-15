@@ -14,8 +14,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from sqlalchemy import create_engine
 
-# Importación de la arquitectura analítica (Fases 3, 4, 5, 6 y 7)
+# Importación de la arquitectura analítica (Fases 3, 4, 5, 6, 7 y 8)
 from src.data.real_dataset_loader import load_real_players_df
+from src.data.global_player_database import load_global_players, sync_global_database_to_postgres
+from src.data.football_api_connector import FootballAPIConnector
 from src.models_scouting.player_profiler import PlayerProfiler
 from src.models_analytics.team_profiler import TeamProfiler
 from src.models_scouting.squad_diagnostics import SquadDiagnostics
@@ -46,19 +48,11 @@ def get_db_engine():
     except Exception:
         return None
 
-# 3. Conjunto de datos enriquecido (multiliga Top 5 + Scouting + Canteras)
+# 3. Conjunto de datos enriquecido (multiliga Top 5 + Scouting + Canteras + Red Mundial)
 @st.cache_data
 def get_players_database() -> pd.DataFrame:
-    """Carga los datos de futbolistas reales con sus métricas y valores de mercado."""
-    engine = get_db_engine()
-    if engine:
-        try:
-            db_df = pd.read_sql("SELECT * FROM analytics_scouting_metrics", engine)
-            if not db_df.empty:
-                return db_df
-        except Exception:
-            pass
-    return load_real_players_df()
+    """Carga los datos de futbolistas reales de la red mundial con sus métricas y valores de mercado."""
+    return load_global_players()
 
 
 # 4. Función gráfica para dibujar un campo de fútbol 2D con mapa de calor
@@ -158,7 +152,8 @@ def main():
             "5. Simulador de Partido en Vivo (Digital Twin estilo NFL)",
             "6. Laboratorio de Fichajes ('What-If' & Monte Carlo)",
             "7. Preparador de Partido (Pizarra vs Rival)",
-            "8. Dossier Ejecutivo para Directiva"
+            "8. Dossier Ejecutivo para Directiva",
+            "9. Conector de APIs en Vivo & Red Mundial"
         ]
     )
 
@@ -178,7 +173,15 @@ def main():
             else:
                 filtered_pool = df_players
 
-            player_names = sorted(filtered_pool["player_name"].unique())
+            # Buscador libre para acceder a cientos de futbolistas mundiales
+            search_box = st.text_input("🔎 Búsqueda Rápida por Nombre o Club:", "").strip()
+            if search_box:
+                filtered_pool = filtered_pool[
+                    filtered_pool["player_name"].str.contains(search_box, case=False, na=False) |
+                    filtered_pool["team_name"].str.contains(search_box, case=False, na=False)
+                ]
+
+            player_names = sorted(filtered_pool["player_name"].unique()) if not filtered_pool.empty else ["Vinícius Júnior"]
             default_idx = player_names.index("Vinícius Júnior") if "Vinícius Júnior" in player_names else 0
             selected_player = st.selectbox("Seleccionar Jugador:", player_names, index=default_idx)
 
@@ -688,6 +691,100 @@ def main():
         Futbolista con alto impacto métrico en su demarcación. Su incorporación representa un salto cualitativo en goles esperados y creación de ocasiones frente al promedio actual de la plantilla de **{club}**.
         """)
         st.success("✅ Recomendación Final del Modelo: FICHAR (Viabilidad Deportiva Alta)")
+
+    # =========================================================================
+    # VISTA 9: CONECTOR DE APIS EN VIVO & RED MUNDIAL DE SCOUTING
+    # =========================================================================
+    elif menu == "9. Conector de APIs en Vivo & Red Mundial":
+        st.title("📡 Conector de APIs en Vivo y Red Mundial de Jugadores")
+        st.markdown("Integración con proveedores de datos en tiempo real (**API-Football / RapidAPI**, **Football-Data.org**) y gestión de la red global de scouting.")
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Futbolistas Registrados", f"{len(df_players):,}")
+        k2.metric("Ligas Mundiales", f"{df_players['league'].nunique()} competiciones")
+        k3.metric("Clubes en la Red", f"{df_players['team_name'].nunique()} equipos")
+        k4.metric("Promesas Sub-21", f"{len(df_players[df_players['age'] <= 21])} canteranos")
+
+        st.markdown("---")
+
+        c_api1, c_api2 = st.columns(2)
+        with c_api1:
+            st.subheader("🔑 Credenciales de APIs Deportivas")
+            st.caption("Introduce tus claves gratuitas de RapidAPI o Football-Data para habilitar consultas en tiempo real.")
+            api_foot_key = st.text_input("API-Football Key (API-Sports / RapidAPI):", value="", type="password")
+            foot_data_token = st.text_input("Football-Data.org Token:", value="", type="password")
+
+            connector = FootballAPIConnector(api_football_key=api_foot_key, football_data_token=foot_data_token)
+
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                if st.button("📡 Probar API-Football"):
+                    with st.spinner("Comprobando conexión..."):
+                        diag = connector.test_api_football_connection()
+                    if diag["connected"]:
+                        st.success(f"✅ {diag['message']}")
+                    else:
+                        st.info(f"ℹ️ {diag['message']}")
+            with col_b2:
+                if st.button("📡 Probar Football-Data"):
+                    with st.spinner("Comprobando conexión..."):
+                        diag_fd = connector.test_football_data_connection()
+                    if diag_fd["connected"]:
+                        st.success(f"✅ {diag_fd['message']}")
+                    else:
+                        st.info(f"ℹ️ {diag_fd['message']}")
+
+        with c_api2:
+            st.subheader("🔍 Consulta en Vivo de Jugador en la API")
+            live_query = st.text_input("Nombre de Jugador a Buscar en Vivo:", placeholder="Ej: Jude Bellingham, Pedri, Estêvão...")
+            if st.button("🚀 Buscar en Vivo en la API"):
+                if not api_foot_key:
+                    st.warning("⚠️ Requiere API Key de API-Football para búsquedas en directo. Puedes obtener una gratuita en api-sports.io o rapidapi.com.")
+                else:
+                    with st.spinner(f"Consultando endpoint /players para '{live_query}'..."):
+                        results = connector.search_live_player(live_query)
+                    if results:
+                        st.success(f"Se encontraron {len(results)} jugadores en la API.")
+                        st.dataframe(pd.DataFrame(results))
+                    else:
+                        st.info(f"No se devolvieron resultados para '{live_query}'.")
+
+        st.markdown("---")
+        st.subheader("🔄 Sincronización con PostgreSQL")
+        st.markdown("Guarda y sincroniza toda la red mundial en las tablas relacionales de PostgreSQL (`analytics_scouting_metrics`, `dim_teams`, `dim_players`).")
+
+        if st.button("📥 Sincronizar Base de Datos Global con PostgreSQL"):
+            with st.spinner("Sincronizando datos con el motor PostgreSQL..."):
+                synced_count = sync_global_database_to_postgres(df_players)
+            st.success(f"✅ Sincronización exitosa: {synced_count} futbolistas persistidos en PostgreSQL.")
+            st.cache_data.clear()
+
+        st.markdown("---")
+        st.subheader("🌐 Explorador Global de Jugadores del Mundo")
+        cf1, cf2, cf3, cf4 = st.columns(4)
+        with cf1:
+            league_f = st.selectbox("Liga:", ["Todas"] + sorted(df_players["league"].unique()), key="exp_league")
+        with cf2:
+            pos_f = st.selectbox("Posición:", ["Todas", "FW", "MF", "DF", "GK"], key="exp_pos")
+        with cf3:
+            max_age_f = st.slider("Edad Máxima:", 16, 40, 35, key="exp_age")
+        with cf4:
+            only_acad_f = st.checkbox("Sólo Canteranos / Promesas", value=False, key="exp_acad")
+
+        filtered_global = df_players.copy()
+        if league_f != "Todas":
+            filtered_global = filtered_global[filtered_global["league"] == league_f]
+        if pos_f != "Todas":
+            filtered_global = filtered_global[filtered_global["position"] == pos_f]
+        filtered_global = filtered_global[filtered_global["age"] <= max_age_f]
+        if only_acad_f:
+            filtered_global = filtered_global[filtered_global["is_academy"] == True]
+
+        st.dataframe(
+            filtered_global[["player_name", "team_name", "league", "position", "age", "market_value_m", "potential_ovr", "xg_p90", "xa_p90", "interceptions_p90"]]
+            .style.background_gradient(subset=["potential_ovr", "market_value_m"], cmap="Blues"),
+            use_container_width=True
+        )
 
 
 if __name__ == "__main__":

@@ -150,10 +150,6 @@ def generate_curated_real_dataset() -> pd.DataFrame:
 
 
 def load_real_players_df() -> pd.DataFrame:
-    """Carga el dataset de jugadores reales desde disco o lo genera si no existe."""
-    if os.path.exists(DATA_PATH):
-        try:
-            return pd.read_csv(DATA_PATH)
-        except Exception:
-            return generate_curated_real_dataset()
-    return generate_curated_real_dataset()
+    """Carga la base de datos global y exhaustiva de futbolistas reales de todo el mundo."""
+    from src.data.global_player_database import load_global_players
+    return load_global_players()
