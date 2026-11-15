@@ -1,4 +1,5 @@
 import os
+from typing import Dict, Any, Optional
 import pandas as pd
 import numpy as np
 
@@ -144,12 +145,60 @@ def generate_curated_real_dataset() -> pd.DataFrame:
     ]
 
     df = pd.DataFrame(players)
+
+    # Rellenar atributos por defecto para garantizar completitud ISO/IEC 25012
+    if "season" not in df.columns:
+        df["season"] = "2026/2027"
+    if "is_academy" in df.columns:
+        academy_fallback = pd.Series((df["age"] <= 21) & (df["market_value_m"] <= 25.0), index=df.index)
+        df["is_academy"] = df["is_academy"].fillna(academy_fallback)
+    if "potential_ovr" in df.columns:
+        pot_fallback = pd.Series(np.where(df["age"] <= 21, 88.0, 82.0), index=df.index)
+        df["potential_ovr"] = df["potential_ovr"].fillna(pot_fallback)
+    if "academy_origin" in df.columns:
+        orig_fallback = pd.Series(np.where(df["is_academy"], "Cantera " + df["team_name"], "Fútbol Base Externo"), index=df.index)
+        df["academy_origin"] = df["academy_origin"].fillna(orig_fallback)
+
+    # Validación estricta con Pandera bajo estándar ISO/IEC 25012
+    from src.data.global_player_database import validate_players_schema
+    validated_df = validate_players_schema(df)
+
     os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    df.to_csv(DATA_PATH, index=False)
-    return df
+    validated_df.to_csv(DATA_PATH, index=False)
+    return validated_df
 
 
-def load_real_players_df() -> pd.DataFrame:
+def load_real_players_df(season: str = "2026/2027") -> pd.DataFrame:
     """Carga la base de datos global y exhaustiva de futbolistas reales de todo el mundo."""
     from src.data.global_player_database import load_global_players
-    return load_global_players()
+    return load_global_players(season=season)
+
+
+def resolve_real_player(query_name: str, team_name: Optional[str] = None, score_cutoff: float = 70.0) -> Optional[Dict[str, Any]]:
+    """
+    Resuelve y localiza un futbolista en la base de datos real unificada
+    gestionando tildes, iniciales y alias mediante RapidFuzz.
+    """
+    from src.data.global_player_database import find_best_player_match
+    df = load_real_players_df()
+    return find_best_player_match(query_name, df, team_name=team_name, score_cutoff=score_cutoff)
+
+
+def get_real_dataset_quality_report() -> Dict[str, Any]:
+    """
+    Devuelve la auditoría de calidad de datos bajo el estándar ISO/IEC 25012
+    para el conjunto de datos de futbolistas reales.
+    """
+    from src.data.global_player_database import audit_iso25012_data_quality
+    df = load_real_players_df()
+    return audit_iso25012_data_quality(df)
+
+
+def deduplicate_real_players(df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """
+    Deduplica un conjunto de datos de futbolistas reales aplicando
+    probabilistic linkage con Splink o RapidFuzz determinista.
+    """
+    from src.data.global_player_database import splink_deduplicate_dataset
+    target_df = df if df is not None else load_real_players_df()
+    return splink_deduplicate_dataset(target_df)

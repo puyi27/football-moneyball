@@ -229,3 +229,191 @@ class MatchupAnalyzer:
             "home_team": home_team,
             "away_team": away_team,
         }
+
+    def simulate_individual_duels(
+        self,
+        local_lineup: pd.DataFrame,
+        rival_lineup: Optional[pd.DataFrame] = None,
+        opponent_profile: Optional[Dict[str, float]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Simula los 5 micro-duelos tácticos individuales decisivos entre el XI local y el rival:
+          1. Banda Izquierda Ofensiva (Extremo Izquierdo vs Lateral Derecho rival)
+          2. Carril Central / Duelo de Gol (Delantero Centro vs Central Marcador rival)
+          3. Banda Derecha Ofensiva (Extremo Derecho vs Lateral Izquierdo rival)
+          4. La Sala de Máquinas (Mediocentro Organizador vs Pivote Defensivo rival)
+          5. Área de Seguridad / Último Bastión (Central Stopper Local vs Delantero Rival)
+
+        Calcula la probabilidad estocástica de éxito en cada duelo, asigna el veredicto
+        y genera el análisis cualitativo y su impacto directo en el xG esperado.
+        """
+        opp_prof = opponent_profile or {
+            "defense_weakness": 1.0,
+            "attack_threat": 1.0,
+            "high_line_vulnerability": 0.5,
+            "low_block_tendency": 0.5,
+        }
+
+        # Helper para extraer el mejor jugador disponible por posición o métrica
+        def _get_player(df: pd.DataFrame, pos_prefix: str, sort_col: str, fallback_idx: int = 0) -> pd.Series:
+            if df is None or df.empty:
+                return pd.Series({
+                    "player_name": f"Jugador Referencia {pos_prefix}",
+                    "position": pos_prefix,
+                    "xg_p90": 0.25,
+                    "xa_p90": 0.20,
+                    "interceptions_p90": 1.1,
+                    "tackles_p90": 1.0,
+                })
+            matched = df[df.get("position", pd.Series([""])).astype(str).str.contains(pos_prefix, case=False, na=False)]
+            if not matched.empty and sort_col in matched.columns:
+                return matched.sort_values(by=sort_col, ascending=False).iloc[0]
+            elif not matched.empty:
+                return matched.iloc[0]
+            elif fallback_idx < len(df):
+                return df.iloc[fallback_idx]
+            else:
+                return df.iloc[0]
+
+        # Jugadores locales clave
+        loc_fw = _get_player(local_lineup, "FW", "xg_p90", 0)
+        loc_lw = _get_player(local_lineup, "FW", "xa_p90", 1)
+        loc_rw = _get_player(local_lineup, "FW", "xg_p90", 2)
+        loc_mf = _get_player(local_lineup, "MF", "xa_p90", 3)
+        loc_df = _get_player(local_lineup, "DF", "interceptions_p90", 4)
+
+        # Jugadores rivales clave
+        if rival_lineup is not None and not rival_lineup.empty:
+            riv_cb = _get_player(rival_lineup, "DF", "interceptions_p90", 0)
+            riv_rb = _get_player(rival_lineup, "DF", "tackles_p90", 1)
+            riv_lb = _get_player(rival_lineup, "DF", "tackles_p90", 2)
+            riv_dm = _get_player(rival_lineup, "MF", "interceptions_p90", 3)
+            riv_fw = _get_player(rival_lineup, "FW", "xg_p90", 4)
+        else:
+            # Arquetipos sintéticos basados en el perfil del rival
+            def_weak = float(opp_prof.get("defense_weakness", 1.0))
+            att_th = float(opp_prof.get("attack_threat", 1.0))
+            riv_cb = pd.Series({"player_name": "Central Rival", "position": "DF", "interceptions_p90": max(0.4, 2.0 / def_weak), "tackles_p90": max(0.4, 1.8 / def_weak), "xg_p90": 0.02, "xa_p90": 0.02})
+            riv_rb = pd.Series({"player_name": "Lateral Der Rival", "position": "DF", "interceptions_p90": max(0.4, 1.5 / def_weak), "tackles_p90": max(0.4, 1.7 / def_weak), "xg_p90": 0.04, "xa_p90": 0.08})
+            riv_lb = pd.Series({"player_name": "Lateral Izq Rival", "position": "DF", "interceptions_p90": max(0.4, 1.5 / def_weak), "tackles_p90": max(0.4, 1.6 / def_weak), "xg_p90": 0.04, "xa_p90": 0.09})
+            riv_dm = pd.Series({"player_name": "Pivote Rival", "position": "MF", "interceptions_p90": max(0.5, 1.8 / def_weak), "tackles_p90": max(0.5, 1.9 / def_weak), "xg_p90": 0.08, "xa_p90": 0.15})
+            riv_fw = pd.Series({"player_name": "Delantero Rival", "position": "FW", "xg_p90": 0.35 * att_th, "xa_p90": 0.18 * att_th, "interceptions_p90": 0.4, "tackles_p90": 0.3})
+
+        duels = []
+
+        # 1. Duelo Banda Izquierda: Extremo Izquierdo Local vs Lateral Derecho Rival
+        lw_att = float(loc_lw.get("xg_p90", 0.0) or 0.0) * 0.4 + float(loc_lw.get("xa_p90", 0.0) or 0.0) * 0.6
+        rb_def = float(riv_rb.get("interceptions_p90", 0.0) or 0.0) * 0.5 + float(riv_rb.get("tackles_p90", 0.0) or 0.0) * 0.5
+        score_diff_1 = (lw_att * 2.8) - (rb_def * 0.6)
+        prob_1 = float(np.clip(1.0 / (1.0 + np.exp(-score_diff_1 * 1.4)), 0.08, 0.92))
+        v_1 = "Ventaja Local" if prob_1 >= 0.53 else ("Ventaja Visitante" if prob_1 <= 0.47 else "Duelo Equilibrado")
+        duels.append({
+            "duel_id": 1,
+            "zone": "Flanco Izquierdo Ofensivo",
+            "duel_name": "Desborde Exterior vs Repliegue Lateral",
+            "local_player": f"{loc_lw.get('player_name', 'Extremo')} ({loc_lw.get('position', 'FW')})",
+            "rival_player": f"{riv_rb.get('player_name', 'Lateral')} ({riv_rb.get('position', 'DF')})",
+            "local_win_prob": round(prob_1, 3),
+            "verdict": v_1,
+            "key_insight": (
+                f"{loc_lw.get('player_name', 'Atacante')} genera {lw_att:.2f} xG+xA p90; "
+                f"{'supera con velocidad la marca exterior rival.' if prob_1 >= 0.5 else 'el lateral rival cierra con solidez la banda.'}"
+            )
+        })
+
+        # 2. Duelo Carril Central: Delantero Centro Local vs Central Rival
+        st_att = float(loc_fw.get("xg_p90", 0.0) or 0.0) * 1.2 + float(loc_fw.get("xa_p90", 0.0) or 0.0) * 0.3
+        cb_def = float(riv_cb.get("interceptions_p90", 0.0) or 0.0) * 0.6 + float(riv_cb.get("tackles_p90", 0.0) or 0.0) * 0.4
+        score_diff_2 = (st_att * 2.2) - (cb_def * 0.55)
+        prob_2 = float(np.clip(1.0 / (1.0 + np.exp(-score_diff_2 * 1.5)), 0.08, 0.92))
+        v_2 = "Ventaja Local" if prob_2 >= 0.53 else ("Ventaja Visitante" if prob_2 <= 0.47 else "Duelo Equilibrado")
+        duels.append({
+            "duel_id": 2,
+            "zone": "Carril Central / Último Tercio",
+            "duel_name": "Finalización en Área vs Anticipación Central",
+            "local_player": f"{loc_fw.get('player_name', 'Delantero')} ({loc_fw.get('position', 'FW')})",
+            "rival_player": f"{riv_cb.get('player_name', 'Central')} ({riv_cb.get('position', 'DF')})",
+            "local_win_prob": round(prob_2, 3),
+            "verdict": v_2,
+            "key_insight": (
+                f"{loc_fw.get('player_name', 'El 9')} ({st_att:.2f} p90) "
+                f"{'tiene ventaja posicional en desmarques al espacio interior.' if prob_2 >= 0.5 else 'enfrenta a un central dominante por alto y en corte bajo.'}"
+            )
+        })
+
+        # 3. Duelo Banda Derecha: Extremo Derecho Local vs Lateral Izquierdo Rival
+        rw_att = float(loc_rw.get("xg_p90", 0.0) or 0.0) * 0.5 + float(loc_rw.get("xa_p90", 0.0) or 0.0) * 0.5
+        lb_def = float(riv_lb.get("interceptions_p90", 0.0) or 0.0) * 0.5 + float(riv_lb.get("tackles_p90", 0.0) or 0.0) * 0.5
+        score_diff_3 = (rw_att * 2.6) - (lb_def * 0.6)
+        prob_3 = float(np.clip(1.0 / (1.0 + np.exp(-score_diff_3 * 1.4)), 0.08, 0.92))
+        v_3 = "Ventaja Local" if prob_3 >= 0.53 else ("Ventaja Visitante" if prob_3 <= 0.47 else "Duelo Equilibrado")
+        duels.append({
+            "duel_id": 3,
+            "zone": "Flanco Derecho Ofensivo",
+            "duel_name": "Diagonal Interior vs Duelo 1vs1 Lateral",
+            "local_player": f"{loc_rw.get('player_name', 'Extremo')} ({loc_rw.get('position', 'FW')})",
+            "rival_player": f"{riv_lb.get('player_name', 'Lateral')} ({riv_lb.get('position', 'DF')})",
+            "local_win_prob": round(prob_3, 3),
+            "verdict": v_3,
+            "key_insight": (
+                f"Recorte hacia pierna hábil de {loc_rw.get('player_name', 'Extremo')}; "
+                f"{'desestabiliza la cobertura exterior del rival.' if prob_3 >= 0.5 else 'el zaguero rival mantiene perfil defensivo cerrado.'}"
+            )
+        })
+
+        # 4. Duelo Sala de Máquinas: Mediocentro Local vs Pivote / Interior Rival
+        mf_play = float(loc_mf.get("xa_p90", 0.0) or 0.0) * 1.2 + float(loc_mf.get("interceptions_p90", 0.0) or 0.0) * 0.6
+        dm_play = float(riv_dm.get("interceptions_p90", 0.0) or 0.0) * 0.8 + float(riv_dm.get("tackles_p90", 0.0) or 0.0) * 0.6
+        score_diff_4 = (mf_play * 1.8) - (dm_play * 0.9)
+        prob_4 = float(np.clip(1.0 / (1.0 + np.exp(-score_diff_4 * 1.3)), 0.08, 0.92))
+        v_4 = "Ventaja Local" if prob_4 >= 0.53 else ("Ventaja Visitante" if prob_4 <= 0.47 else "Duelo Equilibrado")
+        duels.append({
+            "duel_id": 4,
+            "zone": "Sala de Máquinas (Medular)",
+            "duel_name": "Filtración y Ritmo vs Contención de Bloque",
+            "local_player": f"{loc_mf.get('player_name', 'Centrocampista')} ({loc_mf.get('position', 'MF')})",
+            "rival_player": f"{riv_dm.get('player_name', 'Pivote')} ({riv_dm.get('position', 'MF')})",
+            "local_win_prob": round(prob_4, 3),
+            "verdict": v_4,
+            "key_insight": (
+                f"Batalla en el círculo central: {loc_mf.get('player_name', 'Organizador')} "
+                f"{'impone su visión y ritmo de pase.' if prob_4 >= 0.5 else 'sufre ante la presión física rival.'}"
+            )
+        })
+
+        # 5. Duelo Contención Propia: Central Local vs Delantero Rival
+        df_rec = float(loc_df.get("interceptions_p90", 0.0) or 0.0) * 0.6 + float(loc_df.get("tackles_p90", 0.0) or 0.0) * 0.4
+        riv_fw_att = float(riv_fw.get("xg_p90", 0.0) or 0.0) * 1.2 + float(riv_fw.get("xa_p90", 0.0) or 0.0) * 0.3
+        score_diff_5 = (df_rec * 0.65) - (riv_fw_att * 1.9)
+        prob_5 = float(np.clip(1.0 / (1.0 + np.exp(-score_diff_5 * 1.4)), 0.08, 0.92))
+        v_5 = "Ventaja Local" if prob_5 >= 0.53 else ("Ventaja Visitante" if prob_5 <= 0.47 else "Duelo Equilibrado")
+        duels.append({
+            "duel_id": 5,
+            "zone": "Área de Contención Local",
+            "duel_name": "Blindaje Defensivo vs Remate del Ariete Rival",
+            "local_player": f"{loc_df.get('player_name', 'Central')} ({loc_df.get('position', 'DF')})",
+            "rival_player": f"{riv_fw.get('player_name', 'Delantero')} ({riv_fw.get('position', 'FW')})",
+            "local_win_prob": round(prob_5, 3),
+            "verdict": v_5,
+            "key_insight": (
+                f"{loc_df.get('player_name', 'Central')} ({df_rec:.2f} recuperaciones p90) "
+                f"{'neutraliza las recepciones de espaldas del atacante.' if prob_5 >= 0.5 else 'vigilar desmarques al segundo palo del punta rival.'}"
+            )
+        })
+
+        loc_wins = sum(1 for d in duels if d["verdict"] == "Ventaja Local")
+        riv_wins = sum(1 for d in duels if d["verdict"] == "Ventaja Visitante")
+        draws = sum(1 for d in duels if d["verdict"] == "Duelo Equilibrado")
+
+        return {
+            "total_duels": len(duels),
+            "local_duels_won": loc_wins,
+            "rival_duels_won": riv_wins,
+            "drawn_duels": draws,
+            "tactical_balance": (
+                "Dominio Local" if loc_wins > riv_wins else
+                ("Dominio Visitante" if riv_wins > loc_wins else "Equilibrio Táctico")
+            ),
+            "projected_xg_influence": round(float((loc_wins - riv_wins) * 0.08), 3),
+            "duels": duels,
+        }

@@ -355,7 +355,9 @@ def test_subagent_architecture_and_strict_ownership():
 def test_entity_resolution_and_pandera_schema(global_df):
     """
     Verifica que la resolución de entidades (RapidFuzz) y validación de esquemas (Pandera)
-    funcionen correctamente según los estándares de calidad del dato ISO/IEC 25012.
+    funcionen correctamente según los estándares de calidad del dato ISO/IEC 25012,
+    así como la pureza absoluta de los datos de producción, integridad de contratos y
+    bloqueo estricto de cualquier dato sintético en producción.
     """
     from src.data.global_player_database import resolve_player_entity, validate_players_schema
 
@@ -369,4 +371,26 @@ def test_entity_resolution_and_pandera_schema(global_df):
     assert resolve_player_entity("Loic Bade", candidates) == "Loïc Badé"
     assert resolve_player_entity("L. Yamal", candidates) == "Lamine Yamal"
     assert resolve_player_entity("Vini Jr", candidates) == "Vinicius Junior"
+
+    # 3. Auditoría de pureza de datos y bloqueo de sintéticos en producción (ISO/IEC 25012)
+    synthetic_keywords = ["test", "dummy", "mock", "fake", "ghost", "synthetic"]
+    pattern = "|".join(synthetic_keywords)
+    names_synth = global_df[global_df["player_name"].str.contains(pattern, case=False, na=False)]
+    assert names_synth.empty, f"Se han detectado datos sintéticos en nombres de producción: {names_synth['player_name'].tolist()}"
+
+    teams_synth = global_df[global_df["team_name"].str.contains(pattern, case=False, na=False)]
+    assert teams_synth.empty, f"Se han detectado clubes sintéticos en producción: {teams_synth['team_name'].tolist()}"
+
+    # 4. Integridad de contratos y métricas en producción
+    assert (global_df["age"] >= 15).all() and (global_df["age"] <= 45).all(), "Edades fuera de rango fisiológico profesional"
+    assert (global_df["market_value_m"] >= 0.0).all(), "Valores de mercado no pueden ser negativos"
+    assert (global_df["minutes"] >= 0).all(), "Minutos de juego no pueden ser negativos"
+    assert (global_df["potential_ovr"] >= 50).all() and (global_df["potential_ovr"] <= 99).all(), "Potenciales fuera de rango"
+
+    # 5. Ausencia de NaNs en campos requeridos en producción
+    required_fields = ["player_id", "player_name", "team_name", "league", "position", "age", "market_value_m", "minutes"]
+    for col in required_fields:
+        null_count = global_df[col].isnull().sum()
+        assert null_count == 0, f"Columna requerida {col} contiene {null_count} valores nulos en producción"
+
 

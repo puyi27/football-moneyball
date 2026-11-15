@@ -161,6 +161,135 @@ class TacticalSimulator:
             "new_prob_relegation_38pts": round(float(np.mean(new_total <= 38)), 4),
         }
 
+    def evaluate_lineup_synergy(
+        self,
+        lineup_df: pd.DataFrame,
+        formation: str = "4-3-3",
+    ) -> Dict[str, Any]:
+        """
+        Evalúa el índice de química y sinergia táctica de un Once Titular.
+        Mide el equilibrio entre creadores y finalizadores, la solidez defensiva del bloque
+        y calcula el multiplicador contextual sobre el lambda y mu del equipo.
+        """
+        if lineup_df is None or lineup_df.empty:
+            return {
+                "tactical_chemistry_index": 50.0,
+                "offensive_synergy": 1.0,
+                "defensive_resilience": 1.0,
+                "lambda_synergy_boost": 0.0,
+                "mu_synergy_reduction": 0.0,
+                "insights": ["Plantilla vacía o sin datos suficientes."],
+            }
+
+        # 1. Componente Ofensivo: creadores (xA >= 0.15) vs rematadores (xG >= 0.20)
+        tot_xg = float(lineup_df.get("xg_p90", pd.Series([0.0])).fillna(0.0).sum())
+        tot_xa = float(lineup_df.get("xa_p90", pd.Series([0.0])).fillna(0.0).sum())
+        
+        # Proporción óptima: relación equilibrada entre creación y definición
+        creators_count = int((lineup_df.get("xa_p90", pd.Series([0.0])).fillna(0.0) >= 0.15).sum())
+        finishers_count = int((lineup_df.get("xg_p90", pd.Series([0.0])).fillna(0.0) >= 0.20).sum())
+
+        off_balance = 1.0
+        if creators_count >= 2 and finishers_count >= 2:
+            off_balance = 1.15  # Excelente complementariedad
+        elif creators_count == 0 or finishers_count == 0:
+            off_balance = 0.85  # Desbalance: falta creación o pegada
+
+        # 2. Componente Defensivo: intercepciones y entradas colectivas
+        avg_int = float(lineup_df.get("interceptions_p90", pd.Series([1.0])).fillna(1.0).mean())
+        avg_tkl = float(lineup_df.get("tackles_p90", pd.Series([1.0])).fillna(1.0).mean())
+        def_power = avg_int * 0.6 + avg_tkl * 0.4
+        def_resilience = float(np.clip(def_power / 1.4, 0.75, 1.25))
+
+        # 3. Índice de Química Táctica (0-100)
+        chem_raw = (off_balance * 50.0) + (def_resilience * 50.0)
+        chem_index = float(np.clip(chem_raw - 10.0, 30.0, 98.0))
+
+        # Modificadores proporcionales sobre lambda (+/- 10%) y mu (+/- 10%)
+        lambda_boost = round(float((chem_index - 65.0) / 350.0), 3)
+        mu_reduction = round(float((chem_index - 65.0) / 400.0), 3)
+
+        insights = []
+        if off_balance > 1.0:
+            insights.append(f"Alta Sinergia Ofensiva: {creators_count} generadores de juego alimentando a {finishers_count} rematadores.")
+        else:
+            insights.append("Alerta de Creación: El Once carece de suficientes pasadores de último tercio.")
+
+        if def_resilience >= 1.05:
+            insights.append(f"Bloque Compacto: Nivel alto de recuperación ({def_power:.2f} p90 por jugador).")
+        else:
+            insights.append("Vulnerabilidad en Repliegue: La medular y zaga registran baja tasa de intercepciones.")
+
+        return {
+            "formation_evaluated": formation,
+            "tactical_chemistry_index": round(chem_index, 1),
+            "creators_count": creators_count,
+            "finishers_count": finishers_count,
+            "total_lineup_xg": round(tot_xg, 2),
+            "total_lineup_xa": round(tot_xa, 2),
+            "defensive_recovery_power": round(def_power, 2),
+            "lambda_synergy_boost": lambda_boost,
+            "mu_synergy_reduction": mu_reduction,
+            "insights": insights,
+        }
+
+    def evaluate_formation_switch(
+        self,
+        squad_df: pd.DataFrame,
+        current_formation: Dict[str, int],
+        proposed_formation: Dict[str, int],
+        opponent_profile: Optional[Dict[str, float]] = None,
+        base_lambda: float = 1.30,
+        base_mu: float = 1.15,
+    ) -> Dict[str, Any]:
+        """
+        Simula el impacto de cambiar el sistema de juego (ej. de 4-3-3 a 5-3-2 o 4-2-3-1).
+        Selecciona el mejor Once para cada formación y compara xG, solidez y probabilidades 1X2.
+        """
+        from src.models_tactical.matchup_analyzer import MatchupAnalyzer
+        analyzer = MatchupAnalyzer(league_avg_xg=self.league_avg_xg)
+        opp_prof = opponent_profile or {"defense_weakness": 1.0, "attack_threat": 1.0}
+
+        cur_lineup = analyzer.recommend_optimal_lineup(squad_df, formation=current_formation, opponent_profile=opp_prof)
+        prop_lineup = analyzer.recommend_optimal_lineup(squad_df, formation=proposed_formation, opponent_profile=opp_prof)
+
+        cur_off = float(cur_lineup.get("xg_p90", pd.Series([0.2])).mean() + cur_lineup.get("xa_p90", pd.Series([0.2])).mean())
+        prop_off = float(prop_lineup.get("xg_p90", pd.Series([0.2])).mean() + prop_lineup.get("xa_p90", pd.Series([0.2])).mean())
+
+        cur_def = float(cur_lineup.get("interceptions_p90", pd.Series([1.0])).mean())
+        prop_def = float(prop_lineup.get("interceptions_p90", pd.Series([1.0])).mean())
+
+        delta_off = (prop_off - cur_off) / max(0.1, cur_off)
+        delta_def = (prop_def - cur_def) / max(0.1, cur_def)
+
+        new_lam = max(0.2, base_lambda * (1.0 + 0.30 * delta_off))
+        new_mu = max(0.2, base_mu * (1.0 - 0.25 * delta_def))
+
+        cur_probs = self._calculate_1x2_probs(base_lambda, base_mu)
+        prop_probs = self._calculate_1x2_probs(new_lam, new_mu)
+
+        win_delta = prop_probs["win"] - cur_probs["win"]
+
+        if win_delta >= 0.02:
+            verdict = "Cambio Táctico Favorable: La formación propuesta explota mejor el perfil de la plantilla."
+        elif win_delta <= -0.02:
+            verdict = "Mantener Formación Actual: El esquema actual ofrece mayor equilibrio competitivo."
+        else:
+            verdict = "Impacto Similar: Ambas formaciones tienen una expectativa de puntos equivalente."
+
+        return {
+            "current_formation": current_formation,
+            "proposed_formation": proposed_formation,
+            "current_xi_avg_fit": round(float(cur_lineup.get("tactical_fit_score", pd.Series([1.0])).mean()), 3),
+            "proposed_xi_avg_fit": round(float(prop_lineup.get("tactical_fit_score", pd.Series([1.0])).mean()), 3),
+            "base_win_prob": round(cur_probs["win"], 4),
+            "proposed_win_prob": round(prop_probs["win"], 4),
+            "win_prob_delta": round(win_delta, 4),
+            "new_lambda": round(new_lam, 2),
+            "new_mu": round(new_mu, 2),
+            "tactical_verdict": verdict,
+        }
+
     def _get_match_matrix(self, lam: float, mu: float, rho: float) -> np.ndarray:
         """Invoca la matriz de resultados según la interfaz del modelo inyectado."""
         if hasattr(self.poisson_model, "calculate_match_matrix"):

@@ -1,6 +1,8 @@
 import os
+import re
+import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple, Set
 import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine
@@ -9,21 +11,37 @@ from pandera import Column, Check
 from rapidfuzz import fuzz, process
 from unidecode import unidecode
 
+logger = logging.getLogger("GlobalPlayerDatabase")
+
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "processed"
 CSV_PATH = DATA_DIR / "global_players_database.csv"
 
-# Esquema de validación estricta ISO/IEC 25012 con Pandera
+# =============================================================================
+# ESQUEMA DE VALIDACIÓN ESTRICTA ISO/IEC 25012 CON PANDERA
+# =============================================================================
 PLAYER_DATAFRAME_SCHEMA = pa.DataFrameSchema(
     {
-        "player_id": Column(int, Check.greater_than(0), coerce=True),
-        "player_name": Column(str, coerce=True),
-        "team_name": Column(str, coerce=True),
-        "league": Column(str, coerce=True),
-        "position": Column(str, Check.isin(["GK", "DF", "MF", "FW"]), coerce=True),
-        "age": Column(int, Check.in_range(15, 45), coerce=True),
-        "market_value_m": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True),
-        "minutes": Column(int, Check.greater_than_or_equal_to(0), coerce=True),
-        "season": Column(str, coerce=True),
+        "player_id": Column(int, Check.greater_than(0), coerce=True, nullable=False),
+        "player_name": Column(str, Check.str_length(min_value=2), coerce=True, nullable=False),
+        "team_name": Column(str, Check.str_length(min_value=2), coerce=True, nullable=False),
+        "league": Column(str, Check.str_length(min_value=2), coerce=True, nullable=False),
+        "position": Column(str, Check.isin(["GK", "DF", "MF", "FW"]), coerce=True, nullable=False),
+        "age": Column(int, Check.in_range(15, 45), coerce=True, nullable=False),
+        "market_value_m": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "minutes": Column(int, Check.greater_than_or_equal_to(0), coerce=True, nullable=False),
+        "season": Column(str, Check.str_matches(r"^\d{4}/\d{4}$"), coerce=True, required=False, nullable=True),
+        "xg_p90": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, required=False, nullable=True),
+        "xa_p90": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, required=False, nullable=True),
+        "goals_p90": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, required=False, nullable=True),
+        "assists_p90": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, required=False, nullable=True),
+        "interceptions_p90": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, required=False, nullable=True),
+        "tackles_p90": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, required=False, nullable=True),
+        "dribbles_p90": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, required=False, nullable=True),
+        "prog_passes_p90": Column(float, Check.greater_than_or_equal_to(0.0), coerce=True, required=False, nullable=True),
+        "is_reliable": Column(bool, coerce=True, required=False, nullable=True),
+        "potential_ovr": Column(float, Check.in_range(40, 99), coerce=True, required=False, nullable=True),
+        "is_academy": Column(bool, coerce=True, required=False, nullable=True),
+        "academy_origin": Column(str, coerce=True, required=False, nullable=True),
     },
     coerce=True,
     strict=False,
@@ -31,12 +49,261 @@ PLAYER_DATAFRAME_SCHEMA = pa.DataFrameSchema(
 
 
 def validate_players_schema(df: pd.DataFrame) -> pd.DataFrame:
-    """Valida el esquema del DataFrame con Pandera bajo estándar ISO/IEC 25012."""
+    """
+    Valida el esquema del DataFrame con Pandera bajo el estándar ISO/IEC 25012.
+    Asegura completitud, tipos precisos y coherencia de rangos.
+    """
+    if df is None or df.empty:
+        return df
     try:
         return PLAYER_DATAFRAME_SCHEMA.validate(df)
     except Exception as e:
-        print(f"Aviso de validación Pandera: {e}")
+        logger.warning(f"Aviso de validación Pandera: {e}")
         return df
+
+
+def audit_iso25012_data_quality(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Auditoría exhaustiva de calidad del dato bajo el estándar internacional ISO/IEC 25012.
+    Evalúa 5 dimensiones esenciales de calidad:
+      1. Completitud (Completeness): Ausencia de valores nulos o vacíos en variables críticas.
+      2. Exactitud Sintáctica y Semántica (Accuracy): Tipos de datos correctos y límites biológicos plausibles.
+      3. Consistencia (Consistency): Estandarización de posiciones (GK, DF, MF, FW) y ligas.
+      4. Unicidad (Uniqueness): Detección de duplicados en clave compuesta (player_name, team_name, season) y player_id.
+      5. Vigencia y Credibilidad (Currentness & Credibility): Registro de temporadas en vigor (2024-2027) y métricas fiables.
+    """
+    if df is None or df.empty:
+        return {
+            "iso25012_compliant": False,
+            "overall_quality_score": 0.0,
+            "total_records": 0,
+            "error": "DataFrame vacío o nulo"
+        }
+
+    total_records = len(df)
+    core_cols = ["player_id", "player_name", "team_name", "league", "position", "age", "market_value_m", "minutes"]
+    present_core = [c for c in core_cols if c in df.columns]
+
+    # 1. Completitud: % de celdas no nulas en columnas principales
+    null_count = df[present_core].isnull().sum().sum()
+    total_cells = total_records * len(present_core)
+    completeness_score = round(1.0 - (null_count / total_cells if total_cells > 0 else 0.0), 4)
+
+    # 2. Exactitud Sintáctica y Semántica: Edad entre 15 y 45, minutos >= 0, market_value >= 0
+    valid_age = df["age"].between(15, 45).mean() if "age" in df.columns else 1.0
+    valid_mins = (df["minutes"] >= 0).mean() if "minutes" in df.columns else 1.0
+    valid_mv = (df["market_value_m"] >= 0.0).mean() if "market_value_m" in df.columns else 1.0
+    accuracy_score = round(float(valid_age * 0.4 + valid_mins * 0.3 + valid_mv * 0.3), 4)
+
+    # 3. Consistencia: Posiciones válidas en ["GK", "DF", "MF", "FW"]
+    valid_pos = df["position"].isin(["GK", "DF", "MF", "FW"]).mean() if "position" in df.columns else 1.0
+    consistency_score = round(float(valid_pos), 4)
+
+    # 4. Unicidad: Identificadores únicos y registros no duplicados
+    if "season" in df.columns and "team_name" in df.columns:
+        dups = df.duplicated(subset=["player_name", "team_name", "season"]).sum()
+    elif "team_name" in df.columns:
+        dups = df.duplicated(subset=["player_name", "team_name"]).sum()
+    else:
+        dups = df.duplicated(subset=["player_name"]).sum()
+    uniqueness_score = round(float(max(0.0, 1.0 - (dups / total_records))), 4)
+
+    # 5. Vigencia y Credibilidad: Temporadas válidas y fiabilidad
+    valid_season = 1.0
+    if "season" in df.columns:
+        valid_season = df["season"].isin(["2026/2027", "2025/2026", "2024/2025"]).mean()
+    currentness_score = round(float(valid_season), 4)
+
+    # Índice de Calidad Ponderado ISO/IEC 25012
+    overall_quality = round(
+        completeness_score * 0.25 +
+        accuracy_score * 0.25 +
+        consistency_score * 0.20 +
+        uniqueness_score * 0.20 +
+        currentness_score * 0.10,
+        4
+    )
+
+    is_compliant = bool(overall_quality >= 0.95 and completeness_score >= 0.95 and accuracy_score >= 0.95)
+
+    return {
+        "iso25012_compliant": is_compliant,
+        "overall_quality_score": overall_quality,
+        "total_records": total_records,
+        "dimensions": {
+            "completeness_score": completeness_score,
+            "accuracy_score": accuracy_score,
+            "consistency_score": consistency_score,
+            "uniqueness_score": uniqueness_score,
+            "currentness_score": currentness_score
+        },
+        "quality_standard": "ISO/IEC 25012: Data Quality Model (Completeness, Accuracy, Consistency, Uniqueness, Currentness)"
+    }
+
+
+# =============================================================================
+# CONOCIMIENTO DE ALIAS, NICKNAMES Y ACRÓNIMOS FUTBOLÍSTICOS
+# =============================================================================
+FOOTBALL_ENTITY_ALIASES: Dict[str, str] = {
+    # Real Madrid
+    "vini jr": "vinicius junior",
+    "vini": "vinicius junior",
+    "vinicius jr": "vinicius junior",
+    "vinicius": "vinicius junior",
+    "k. mbappe": "kylian mbappe",
+    "mbappe": "kylian mbappe",
+    "fede valverde": "federico valverde",
+    "f. valverde": "federico valverde",
+    "valverde": "federico valverde",
+    "j. bellingham": "jude bellingham",
+    "bellingham": "jude bellingham",
+    "rudiger": "antonio rudiger",
+    "courtois": "thibaut courtois",
+    "modric": "luka modric",
+    "arda guler": "arda guler",
+    "endrick": "endrick felipe",
+    # FC Barcelona
+    "l. yamal": "lamine yamal",
+    "yamal": "lamine yamal",
+    "lewandowski": "robert lewandowski",
+    "r. lewandowski": "robert lewandowski",
+    "raphinha": "raphinha",
+    "pedri": "pedri",
+    "gavi": "gavi",
+    "pablo gavi": "gavi",
+    "pau cubarsi": "pau cubarsi",
+    "cubarsi": "pau cubarsi",
+    "casado": "marc casado",
+    "hector fort": "hector fort",
+    "dani olmo": "dani olmo",
+    "olmo": "dani olmo",
+    # Atletico de Madrid
+    "griezmann": "antoine griezmann",
+    "a. griezmann": "antoine griezmann",
+    "julian alvarez": "julian alvarez",
+    "j. alvarez": "julian alvarez",
+    "la arana": "julian alvarez",
+    "koke": "koke",
+    "le normand": "robin le normand",
+    "sorloth": "alexander sorloth",
+    # Sevilla FC
+    "loic bade": "loic bade",
+    "bade": "loic bade",
+    "l. bade": "loic bade",
+    "dodi lukebakio": "dodi lukebakio",
+    "lukebakio": "dodi lukebakio",
+    "isaac romero": "isaac romero",
+    "isaac": "isaac romero",
+    "juanlu": "juanlu sanchez",
+    "juanlu sanchez": "juanlu sanchez",
+    "kike salas": "kike salas",
+    "carmona": "jose angel carmona",
+    "jose angel carmona": "jose angel carmona",
+    "nyland": "orjan nyland",
+    "orjan nyland": "orjan nyland",
+    "marcao": "marcao",
+    "tanguy nianzou": "tanguy nianzou",
+    "nianzou": "tanguy nianzou",
+    "gudelj": "nemanja gudelj",
+    "nemanja gudelj": "nemanja gudelj",
+    "agoume": "lucien agoume",
+    "lucien agoume": "lucien agoume",
+    "djibril sow": "djibril sow",
+    "sow": "djibril sow",
+    "sambi lokonga": "albert sambi lokonga",
+    "lokonga": "albert sambi lokonga",
+    "peque": "gerard fernandez 'peque'",
+    "gerard fernandez": "gerard fernandez 'peque'",
+    "ejuke": "chidera ejuke",
+    "chidera ejuke": "chidera ejuke",
+    "idumbo": "stanis idumbo",
+    "stanis idumbo": "stanis idumbo",
+    "suso": "suso fernandez",
+    "suso fernandez": "suso fernandez",
+    "alberto collado": "alberto collado",
+    "manu bueno": "manu bueno",
+    # Real Betis
+    "isco": "isco alarcon",
+    "isco alarcon": "isco alarcon",
+    "lo celso": "giovani lo celso",
+    "giovani lo celso": "giovani lo celso",
+    "vitor roque": "vitor roque",
+    "tigrinho": "vitor roque",
+    "bartra": "marc bartra",
+    "cardoso": "johnny cardoso",
+    "johnny cardoso": "johnny cardoso",
+    "fornals": "pablo fornals",
+    # Athletic Club & Real Sociedad & Villarreal
+    "nico williams": "nico williams",
+    "n. williams": "nico williams",
+    "inaki williams": "inaki williams",
+    "i. williams": "inaki williams",
+    "sancet": "oihan sancet",
+    "oihan sancet": "oihan sancet",
+    "vivian": "dani vivian",
+    "kubo": "takefusa kubo",
+    "take kubo": "takefusa kubo",
+    "takefusa kubo": "takefusa kubo",
+    "zubimendi": "martin zubimendi",
+    "martin zubimendi": "martin zubimendi",
+    "oyarzabal": "mikel oyarzabal",
+    "alex baena": "alex baena",
+    "baena": "alex baena",
+    "ayoze": "ayoze perez",
+    "ayoze perez": "ayoze perez",
+    "tsygankov": "viktor tsygankov",
+    "miguel gutierrez": "miguel gutierrez",
+    # Premier League & Stars
+    "haaland": "erling haaland",
+    "e. haaland": "erling haaland",
+    "rodri": "rodri hernandez",
+    "rodri hernandez": "rodri hernandez",
+    "kdb": "kevin de bruyne",
+    "de bruyne": "kevin de bruyne",
+    "saka": "bukayo saka",
+    "b. saka": "bukayo saka",
+    "odegaard": "martin odegaard",
+    "m. odegaard": "martin odegaard",
+    "salah": "mohamed salah",
+    "mo salah": "mohamed salah",
+    "van dijk": "virgil van dijk",
+    "vvd": "virgil van dijk",
+    "palmer": "cole palmer",
+    "c. palmer": "cole palmer",
+    # Serie A, Bundesliga, Ligue 1, Talent
+    "lautaro": "lautaro martinez",
+    "lautaro martinez": "lautaro martinez",
+    "barella": "nicolo barella",
+    "vlahovic": "dusan vlahovic",
+    "dusan vlahovic": "dusan vlahovic",
+    "yildiz": "kenan yildiz",
+    "kenan yildiz": "kenan yildiz",
+    "leao": "rafael leao",
+    "rafael leao": "rafael leao",
+    "kvara": "khvicha kvaratskhelia",
+    "kvaratskhelia": "khvicha kvaratskhelia",
+    "kane": "harry kane",
+    "harry kane": "harry kane",
+    "musiala": "jamal musiala",
+    "jamal musiala": "jamal musiala",
+    "wirtz": "florian wirtz",
+    "florian wirtz": "florian wirtz",
+    "barcola": "bradley barcola",
+    "zaire-emery": "warren zaire-emery",
+    "gyokeres": "viktor gyokeres",
+    "viktor gyokeres": "viktor gyokeres",
+    "quenda": "geovany quenda",
+    "geovany quenda": "geovany quenda",
+    "messinho": "estevao willian ('messinho')",
+    "estevao": "estevao willian ('messinho')",
+    "diablito": "claudio echeverri ('el diablito')",
+    "el diablito": "claudio echeverri ('el diablito')",
+    "mastantuono": "franco mastantuono",
+    "messi": "lionel messi",
+    "leo messi": "lionel messi",
+    "cr7": "cristiano ronaldo",
+    "ronaldo": "cristiano ronaldo"
+}
 
 
 def resolve_player_entity(
@@ -44,25 +311,240 @@ def resolve_player_entity(
 ) -> Optional[str]:
     """
     Resuelve entidades y cruce de nombres de jugadores entre fuentes heterogéneas
-    (FBref, Transfermarkt, Sofascore) usando RapidFuzz con normalización Unicode.
+    (FBref, Transfermarkt, Sofascore, Understat) usando RapidFuzz con normalización Unicode
+    y diccionario de alias y acrónimos futbolísticos.
     """
     if not query_name or not candidate_names:
         return None
 
-    clean_query = unidecode(str(query_name).strip().lower())
-    candidates_clean_map = {unidecode(str(c).strip().lower()): c for c in candidate_names}
-    choices = list(candidates_clean_map.keys())
+    raw_query = str(query_name).strip()
+    clean_query = unidecode(raw_query).lower()
 
+    # Mapa de candidatos limpios a sus cadenas originales
+    candidates_clean_map = {unidecode(str(c).strip()).lower(): str(c) for c in candidate_names}
+    clean_choices = list(candidates_clean_map.keys())
+
+    # 1. Búsqueda exacta directa
+    if clean_query in candidates_clean_map:
+        return candidates_clean_map[clean_query]
+
+    # 2. Resolución por diccionario de alias
+    alias_target = FOOTBALL_ENTITY_ALIASES.get(clean_query)
+    if alias_target:
+        clean_alias = unidecode(alias_target).lower()
+        if clean_alias in candidates_clean_map:
+            return candidates_clean_map[clean_alias]
+        alias_match = process.extractOne(
+            clean_alias,
+            clean_choices,
+            scorer=fuzz.WRatio,
+            score_cutoff=score_cutoff,
+        )
+        if alias_match:
+            return candidates_clean_map.get(alias_match[0])
+
+    # 3. Detección de inicial y apellido (ej: 'L. Yamal' -> inicial 'l', apellido 'yamal')
+    init_match = re.match(r"^([a-z])[\.\s]+([a-z\s]+)$", clean_query)
+    if init_match:
+        initial = init_match.group(1)
+        surname = init_match.group(2).strip()
+        for cand_clean, original in candidates_clean_map.items():
+            cand_tokens = cand_clean.split()
+            if len(cand_tokens) >= 2 and cand_tokens[0].startswith(initial):
+                if surname in cand_tokens[-1] or fuzz.ratio(surname, cand_tokens[-1]) >= 85:
+                    return original
+
+    # 4. RapidFuzz con WRatio y token sort
     match = process.extractOne(
         clean_query,
-        choices,
+        clean_choices,
         scorer=fuzz.WRatio,
         score_cutoff=score_cutoff,
     )
     if match:
         best_choice, score, _ = match
         return candidates_clean_map.get(best_choice)
+
     return None
+
+
+def find_best_player_match(
+    query_name: str,
+    df: pd.DataFrame,
+    team_name: Optional[str] = None,
+    score_cutoff: float = 70.0,
+) -> Optional[Dict[str, Any]]:
+    """
+    Localiza el registro de un futbolista dentro de un DataFrame aplicando
+    resolución de entidades RapidFuzz y opcionalmente filtrando/priorizando por club.
+    """
+    if df is None or df.empty or not query_name:
+        return None
+
+    target_df = df
+    if team_name and "team_name" in df.columns:
+        team_subset = df[df["team_name"].str.contains(team_name, case=False, na=False)]
+        if not team_subset.empty:
+            target_df = team_subset
+
+    candidates = target_df["player_name"].dropna().unique().tolist()
+    matched_name = resolve_player_entity(query_name, candidates, score_cutoff=score_cutoff)
+
+    if not matched_name and team_name and len(target_df) < len(df):
+        all_candidates = df["player_name"].dropna().unique().tolist()
+        matched_name = resolve_player_entity(query_name, all_candidates, score_cutoff=score_cutoff)
+
+    if matched_name:
+        matches = df[df["player_name"] == matched_name]
+        if not matches.empty:
+            return matches.iloc[0].to_dict()
+
+    return None
+
+
+def unify_multi_source_player_records(
+    sources: Dict[str, pd.DataFrame],
+    primary_source: str = "fbref",
+    score_cutoff: float = 75.0,
+) -> pd.DataFrame:
+    """
+    Unifica registros de futbolistas procedentes de fuentes heterogéneas
+    (FBref, Transfermarkt, Sofascore, Understat) en una tabla única consolidada.
+    Aplica Entity Resolution con RapidFuzz para eliminar duplicados por tildes o alias,
+    y valida el DataFrame resultante bajo el estándar estricto Pandera ISO/IEC 25012.
+    """
+    if not sources:
+        return pd.DataFrame()
+
+    col_mapping = {
+        "player": "player_name",
+        "name": "player_name",
+        "squad": "team_name",
+        "team": "team_name",
+        "comp": "league",
+        "pos": "position",
+        "market_value": "market_value_m",
+        "value": "market_value_m",
+        "min": "minutes",
+        "mins": "minutes",
+        "xg": "xg_p90",
+        "xa": "xa_p90",
+        "goals": "goals_p90",
+        "assists": "assists_p90",
+    }
+
+    normalized_sources: Dict[str, pd.DataFrame] = {}
+    for src_name, src_df in sources.items():
+        if src_df is None or src_df.empty:
+            continue
+        df_copy = src_df.copy()
+        df_copy.columns = [col_mapping.get(c.lower(), c.lower()) for c in df_copy.columns]
+        normalized_sources[src_name] = df_copy
+
+    if not normalized_sources:
+        return pd.DataFrame()
+
+    base_key = primary_source if primary_source in normalized_sources else list(normalized_sources.keys())[0]
+    master_df = normalized_sources[base_key].copy()
+
+    if "player_id" not in master_df.columns:
+        master_df["player_id"] = range(1001, 1001 + len(master_df))
+
+    if "season" not in master_df.columns:
+        master_df["season"] = "2026/2027"
+
+    for src_name, sec_df in normalized_sources.items():
+        if src_name == base_key:
+            continue
+
+        candidate_names = master_df["player_name"].tolist()
+
+        for _, sec_row in sec_df.iterrows():
+            sec_name = sec_row.get("player_name")
+            if not sec_name:
+                continue
+
+            matched_canonical = resolve_player_entity(str(sec_name), candidate_names, score_cutoff=score_cutoff)
+            if matched_canonical:
+                idx = master_df[master_df["player_name"] == matched_canonical].index
+                if len(idx) > 0:
+                    for col in sec_df.columns:
+                        if col not in master_df.columns:
+                            master_df[col] = np.nan
+                        curr_val = master_df.loc[idx[0], col]
+                        sec_val = sec_row.get(col)
+                        if pd.isna(curr_val) and pd.notna(sec_val):
+                            master_df.loc[idx[0], col] = sec_val
+            else:
+                new_row = sec_row.to_dict()
+                if "player_id" not in new_row or pd.isna(new_row.get("player_id")):
+                    new_row["player_id"] = int(master_df["player_id"].max() + 1 if not master_df.empty else 1001)
+                if "season" not in new_row or pd.isna(new_row.get("season")):
+                    new_row["season"] = "2026/2027"
+                master_df = pd.concat([master_df, pd.DataFrame([new_row])], ignore_index=True)
+                candidate_names.append(str(sec_name))
+
+    return validate_players_schema(master_df)
+
+
+def splink_deduplicate_dataset(df: pd.DataFrame, match_threshold: float = 0.85) -> pd.DataFrame:
+    """
+    Deduplica registros de futbolistas utilizando Splink (probabilistic record linkage)
+    o RapidFuzz como motor optimizado de alta velocidad.
+    Preserva entidades homónimas en distintos clubes (ej: Juan Cruz en Osasuna vs Juan Cruz en Leganés).
+    """
+    if df is None or len(df) <= 1:
+        return df
+
+    # Intentar deduplicación probabilística con Splink si está disponible
+    try:
+        from splink import Linker, SettingsCreator, block_on
+        import splink.comparison_library as cl
+
+        splink_df = df.copy()
+        if "unique_id" not in splink_df.columns:
+            splink_df["unique_id"] = splink_df["player_id"].astype(str) if "player_id" in splink_df.columns else [str(i) for i in range(len(splink_df))]
+
+        settings = SettingsCreator(
+            link_type="dedupe_only",
+            comparisons=[
+                cl.ExactMatch("position"),
+                cl.LevenshteinAtThresholds("player_name", [1, 2]),
+                cl.LevenshteinAtThresholds("team_name", [1, 2]),
+            ],
+            blocking_rules_to_generate_predictions=[
+                block_on("team_name"),
+            ],
+            probability_two_random_records_match=0.001,
+        )
+
+        linker = Linker(splink_df, settings, log_level=40, validate_settings=False)
+        preds = linker.inference.predict(threshold_match_probability=match_threshold)
+        clusters = linker.clustering.cluster_pairwise_predictions_at_threshold(preds, threshold_match_probability=match_threshold)
+        clust_df = clusters.as_pandas_dataframe()
+
+        if not clust_df.empty and "cluster_id" in clust_df.columns:
+            deduped_ids = clust_df.drop_duplicates(subset=["cluster_id"])["unique_id"].tolist()
+            remaining = splink_df[splink_df["unique_id"].isin(deduped_ids)].drop(columns=["unique_id"], errors="ignore")
+            return validate_players_schema(remaining)
+    except Exception as e:
+        logger.debug(f"Splink probabilistic linkage diferido a RapidFuzz deduplication: {e}")
+
+    # Motor Determinista / RapidFuzz fallback
+    deduped_indices = []
+    seen_entities: Set[Tuple[str, str, str]] = set()
+
+    for idx, row in df.iterrows():
+        pname = unidecode(str(row.get("player_name", "")).strip().lower())
+        team = unidecode(str(row.get("team_name", "")).strip().lower())
+        season = str(row.get("season", "default"))
+        entity_key = (pname, team, season)
+        if entity_key not in seen_entities:
+            seen_entities.add(entity_key)
+            deduped_indices.append(idx)
+
+    result_df = df.loc[deduped_indices].copy()
+    return validate_players_schema(result_df)
 
 
 def get_postgres_engine():

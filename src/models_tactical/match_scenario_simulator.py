@@ -233,11 +233,14 @@ class MatchScenarioSimulator:
         away_team: str,
         base_elo_home: float = 1600.0,
         base_elo_away: float = 1600.0,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        individual_duels: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Simulación estocástica minuto a minuto (1-90) para el gemelo digital (Digital Twin).
-        Calcula probabilidades de victoria progresivas, métricas xG acumuladas y mapa de ocasiones.
+        Calcula probabilidades de victoria progresivas, métricas xG acumuladas, mapa de ocasiones
+        e integra el balance de duelos individuales si están disponibles.
         """
         if seed is not None:
             np.random.seed(seed)
@@ -246,6 +249,12 @@ class MatchScenarioSimulator:
         elo_diff = (base_elo_home - base_elo_away) / 400.0
         lam_home = max(0.5, 1.45 + (elo_diff * 0.5))
         lam_away = max(0.4, 1.15 - (elo_diff * 0.4))
+
+        # Modulación contextual si se aportan los resultados de duelos individuales
+        if individual_duels and "projected_xg_influence" in individual_duels:
+            duel_xg = float(individual_duels["projected_xg_influence"])
+            lam_home = max(0.35, lam_home + duel_xg)
+            lam_away = max(0.25, lam_away - duel_xg * 0.6)
 
         events_raw, timeline_df, score_str = self._simulate_90_minutes(
             home_team, away_team, lam_home, lam_away, "Ataque Posicional", "Bloque Medio y Salida"
@@ -259,24 +268,34 @@ class MatchScenarioSimulator:
         base_p_win = 1.0 / (1.0 + 10.0 ** (-elo_diff))
 
         for ev in events_raw:
-            if ev.get("is_goal", False):
+            is_goal = ev.get("is_goal", False)
+            xg_val = float(ev.get("xg", 0.2))
+
+            if is_goal:
                 if ev["team"] == home_team:
                     cur_home_goals += 1
                 else:
                     cur_away_goals += 1
                 event_type = "Gol ⚽"
+            elif xg_val >= 0.38:
+                event_type = "Parada Salvadora 🧤"
             else:
                 event_type = "Remate Clave 🎯"
 
             goal_diff = cur_home_goals - cur_away_goals
             min_left = (90 - ev["minute"]) / 90.0
-            dyn_prob = np.clip(base_p_win + (goal_diff * 0.28) * (1.0 - min_left * 0.4), 0.02, 0.98)
+            
+            # Dinámica probabilística Dixon-Coles aproximada para tiempo restante
+            dyn_prob = np.clip(
+                base_p_win + (goal_diff * 0.28) * (1.0 - min_left * 0.45) + (elo_diff * 0.05 * min_left),
+                0.02, 0.98
+            )
 
             events.append({
                 "minute": int(ev["minute"]),
                 "team": ev["team"],
                 "event_type": event_type,
-                "xg_value": round(float(ev["xg"]), 2),
+                "xg_value": round(xg_val, 2),
                 "win_prob_home": f"{round(float(dyn_prob * 100), 1)}%",
                 "win_prob_home_float": round(float(dyn_prob), 4),
                 "desc": ev.get("desc", ""),
@@ -294,4 +313,110 @@ class MatchScenarioSimulator:
             "total_xg_away": total_xg_away,
             "events": events,
             "timeline_df": timeline_df
+        }
+
+    def simulate_in_game_tactical_adjustment(
+        self,
+        current_minute: int,
+        current_score: Tuple[int, int],
+        current_formation: str = "4-3-3",
+        current_style: str = "Posesión y Bloque Alto",
+        adjusted_formation: str = "5-3-2",
+        adjusted_style: str = "Bloque Bajo y Contragolpe Rápido",
+        opponent_profile: Optional[Dict[str, Any]] = None,
+        base_elo_diff: float = 0.0,
+        seed: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Simula el impacto de un ajuste táctico en directo ("What-If In-Game") a partir del minuto actual.
+        Evalúa si cambiar la formación/estilo protege una ventaja o maximiza la remontada.
+        """
+        if seed is not None:
+            np.random.seed(seed)
+
+        opp = opponent_profile or {
+            "defense_weakness": 1.10,
+            "attack_threat": 1.10,
+            "pressing_intensity": 7.5,
+            "high_line_vulnerability": 0.50,
+        }
+
+        mins_remaining = max(1, 90 - current_minute)
+        time_fraction = mins_remaining / 90.0
+
+        # Baseline: mantener táctica actual
+        base_lam = max(0.3, 1.35 * (1.0 + base_elo_diff * 0.15) * opp["defense_weakness"])
+        base_mu = max(0.3, 1.15 * (1.0 - base_elo_diff * 0.15) * opp["attack_threat"])
+
+        # Ajustada: nuevo esquema
+        adj_off_boost = 1.0
+        adj_def_boost = 1.0
+
+        if "5-" in adjusted_formation or "3-" in adjusted_formation:
+            adj_def_boost -= 0.22  # Mayor solidez defensiva
+            adj_off_boost -= 0.10  # Menor volumen ofensivo
+        elif "4-2-4" in adjusted_formation or "3-4-3" in adjusted_formation:
+            adj_off_boost += 0.25  # Asedio ofensivo a la desesperada
+            adj_def_boost += 0.20  # Mayor exposición a la contra
+
+        if "Contragolpe" in adjusted_style and opp.get("high_line_vulnerability", 0.5) >= 0.6:
+            adj_off_boost += 0.18
+
+        adj_lam = max(0.25, base_lam * adj_off_boost)
+        adj_mu = max(0.25, base_mu * adj_def_boost)
+
+        # Proyección esperada para los minutos restantes
+        base_rem_lam = base_lam * time_fraction
+        base_rem_mu = base_mu * time_fraction
+
+        adj_rem_lam = adj_lam * time_fraction
+        adj_rem_mu = adj_mu * time_fraction
+
+        # Matriz Dixon-Coles de los minutos restantes
+        base_mat = self.poisson.calculate_match_matrix(base_rem_lam, base_rem_mu, rho=-0.05)
+        adj_mat = self.poisson.calculate_match_matrix(adj_rem_lam, adj_rem_mu, rho=-0.05)
+
+        h_cur, a_cur = current_score
+        lead = h_cur - a_cur
+
+        def _compute_full_probs(mat: np.ndarray, lead_diff: int) -> Dict[str, float]:
+            w, d, l = 0.0, 0.0, 0.0
+            max_g = mat.shape[0]
+            for i in range(max_g):
+                for j in range(max_g):
+                    p = mat[i, j]
+                    final_diff = lead_diff + (i - j)
+                    if final_diff > 0:
+                        w += p
+                    elif final_diff == 0:
+                        d += p
+                    else:
+                        l += p
+            tot = max(1e-9, w + d + l)
+            return {"win": round(w / tot, 4), "draw": round(d / tot, 4), "loss": round(l / tot, 4)}
+
+        base_probs = _compute_full_probs(base_mat, lead)
+        adj_probs = _compute_full_probs(adj_mat, lead)
+
+        delta_win = round(adj_probs["win"] - base_probs["win"], 4)
+
+        if delta_win >= 0.03:
+            verdict = f"Ajuste Táctico Recomendado: cambiar a {adjusted_formation} ({adjusted_style}) eleva la probabilidad de ganar en +{round(delta_win * 100, 1)}%."
+        elif delta_win <= -0.03:
+            verdict = f"Desaconsejado: el cambio a {adjusted_formation} resta estabilidad y reduce la probabilidad de ganar en {round(delta_win * 100, 1)}%."
+        else:
+            verdict = f"Neutral: impacto estadístico similar. Mantener según el cansancio físico de la plantilla."
+
+        return {
+            "current_minute": current_minute,
+            "current_score": f"{h_cur} - {a_cur}",
+            "minutes_remaining": mins_remaining,
+            "baseline_tactics": f"{current_formation} ({current_style})",
+            "adjusted_tactics": f"{adjusted_formation} ({adjusted_style})",
+            "baseline_win_prob": base_probs["win"],
+            "adjusted_win_prob": adj_probs["win"],
+            "delta_win_prob": delta_win,
+            "baseline_probabilities": base_probs,
+            "adjusted_probabilities": adj_probs,
+            "tactical_verdict": verdict,
         }

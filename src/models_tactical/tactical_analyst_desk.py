@@ -6,6 +6,7 @@ from src.models_scouting.squad_diagnostics import SquadDiagnostics
 from src.models_scouting.recommender import ScoutingRecommender
 from src.models_analytics.elo_model import EloSystem
 from src.models_analytics.poisson_model import DixonColesModel
+from src.models_analytics.team_profiler import TeamProfiler
 from src.models_tactical.lineup_simulator import TacticalSimulator
 from src.models_tactical.matchup_analyzer import MatchupAnalyzer
 from src.models_tactical.tactical_playmaker import TacticalPlaymaker
@@ -19,7 +20,7 @@ class TacticalAnalystDesk:
       - Scouting Contextual en las 5 Grandes Ligas y Ligas Secundarias (Fase 3)
       - Modelos Probabilísticos Elo y Dixon-Coles (Fase 4)
       - Simulador de Fichajes "What-If" y Monte Carlo (Fase 5)
-      - Optimizador de Alineaciones y Pizarra Táctica (Fase 5)
+      - Optimizador de Alineaciones, Pizarra Táctica y Duelos Individuales (Fase 5 y 7)
     """
 
     def __init__(
@@ -37,6 +38,7 @@ class TacticalAnalystDesk:
         # Inicializar submódulos
         self.diagnostics = SquadDiagnostics(self.df_metrics)
         self.recommender = ScoutingRecommender(self.df_metrics)
+        self.team_profiler = TeamProfiler(df_players=self.df_metrics, elo_system=self.elo_system)
         self.simulator = TacticalSimulator(
             poisson_model=self.poisson_model,
             elo_system=self.elo_system,
@@ -185,6 +187,7 @@ class TacticalAnalystDesk:
         """
         Prepara el partido de la próxima jornada seleccionando el XI más idóneo
         para contrarrestar al rival y redacta las directrices tácticas de pizarra.
+        Consume el perfil táctico oficial de TeamProfiler y calcula duelos individuales.
         Acepta en opponent_profile tanto un diccionario de atributos como el nombre del club rival (str).
         """
         opp_name = "Rival"
@@ -195,33 +198,55 @@ class TacticalAnalystDesk:
             my_elo = self.elo_system.get_rating(team_name) if hasattr(self.elo_system, "get_rating") else 1650.0
             elo_diff = rival_elo - my_elo
 
+            # Consumir el perfil táctico oficial de TeamProfiler sin duplicar cálculos
+            team_adn = None
+            alpha_power = 1.05
+            beta_leak = 1.05
+            try:
+                overview = self.team_profiler.get_team_overview(opp_name)
+                team_adn = overview.get("tactical_adn", {})
+                alpha_power = float(overview.get("alpha_offensive_power", 1.1))
+                beta_leak = float(overview.get("beta_defensive_leak", 1.0))
+            except Exception:
+                team_adn = TeamProfiler.TEAM_TACTICAL_STYLES.get(opp_name, {})
+                alpha_power = 1.25 if elo_diff > 100 else (0.85 if elo_diff < -100 else 1.05)
+                beta_leak = 0.85 if elo_diff > 100 else (1.25 if elo_diff < -100 else 1.05)
+
+            press_val = float(team_adn.get("pressing_intensity", 7.5)) if team_adn else 7.5
+            poss_val = float(team_adn.get("possession_pct", 52.0)) if team_adn else 52.0
+            style_name = str(team_adn.get("style", "Bloque Competitivo")) if team_adn else "Bloque Competitivo"
+            pref_channel = str(team_adn.get("preferred_channel", "Juego Exterior")) if team_adn else "Juego Exterior"
+
             if elo_diff > 100:
                 profile_dict = {
-                    "defense_weakness": 0.85,
-                    "attack_threat": 1.35,
-                    "high_line_vulnerability": 0.75,
-                    "low_block_tendency": 0.20
+                    "defense_weakness": round(float(beta_leak * 0.9), 2),
+                    "attack_threat": round(float(alpha_power * 1.1), 2),
+                    "high_line_vulnerability": round(float(np.clip(press_val / 10.0, 0.4, 0.9)), 2),
+                    "low_block_tendency": 0.20,
+                    "pressing_intensity": press_val,
                 }
                 form_text = "5-3-2 Transición Rápida & Repliegue Asimétrico"
-                mister_inst = f"El rival ({opp_name}) asfixia con bloque alto y posesión ({rival_elo:.0f} Elo). Ceder la iniciativa territorial, cerrar pasillos interiores y castigar con diagonales a la espalda de sus centrales."
+                mister_inst = f"El rival ({opp_name}) asfixia con {style_name.lower()} ({rival_elo:.0f} Elo, {poss_val:.1f}% posesión). Priorizar contención en {pref_channel}, ceder la iniciativa territorial, cerrar pasillos interiores y castigar con diagonales a la espalda de sus centrales."
             elif elo_diff < -100:
                 profile_dict = {
-                    "defense_weakness": 1.25,
-                    "attack_threat": 0.80,
+                    "defense_weakness": round(float(beta_leak * 1.15), 2),
+                    "attack_threat": round(float(alpha_power * 0.85), 2),
                     "high_line_vulnerability": 0.30,
-                    "low_block_tendency": 0.80
+                    "low_block_tendency": 0.80,
+                    "pressing_intensity": press_val,
                 }
                 form_text = "4-3-3 Ofensivo con Amplitud Total y Sobrecarga"
                 mister_inst = f"{opp_name} plantará un bloque bajo ultradefensivo. Fijar con laterales en amplitud máxima, paciencia en circulación y buscar centros tensos al punto de penalti y disparos desde la frontal."
             else:
                 profile_dict = {
-                    "defense_weakness": 1.05,
-                    "attack_threat": 1.05,
-                    "high_line_vulnerability": 0.50,
-                    "low_block_tendency": 0.45
+                    "defense_weakness": round(float(beta_leak), 2),
+                    "attack_threat": round(float(alpha_power), 2),
+                    "high_line_vulnerability": round(float(np.clip(press_val / 10.0, 0.35, 0.75)), 2),
+                    "low_block_tendency": 0.45,
+                    "pressing_intensity": press_val,
                 }
                 form_text = "4-2-3-1 Dinámico con Presión Tras Pérdida"
-                mister_inst = f"Duelo de fuerzas parejas frente a {opp_name}. Clave ganar los duelos en la medular, gobernar segundas jugadas y buscar desborde en el 1 contra 1 por las bandas."
+                mister_inst = f"Duelo de fuerzas parejas frente a {opp_name} ({style_name}). Clave ganar los duelos en la medular, gobernar segundas jugadas y buscar desborde en el 1 contra 1 por las bandas."
         elif isinstance(opponent_profile, dict):
             profile_dict = opponent_profile
             form_text = "4-3-3 Adaptado al Análisis de Pizarra"
@@ -243,10 +268,33 @@ class TacticalAnalystDesk:
             opponent_profile=profile_dict,
         )
 
-        # Radiografía del enfrentamiento
+        # Radiografía del enfrentamiento colectivo
         matchup_insights = self.matchup_analyzer.analyze_tactical_matchup(
             lineup_df=optimal_lineup,
             opponent_profile=profile_dict,
+        )
+
+        # Buscar XI titular rival disponible para duelos directos hombre a hombre
+        rival_pool = self.df_metrics[self.df_metrics.get("team_name", "") == opp_name]
+        rival_xi = None
+        if not rival_pool.empty and len(rival_pool) >= 11:
+            rival_xi = self.matchup_analyzer.recommend_optimal_lineup(
+                available_players_df=rival_pool,
+                formation=formation,
+                opponent_profile={"defense_weakness": 1.0, "attack_threat": 1.0},
+            )
+
+        # Simular los 5 duelos individuales decisivos
+        individual_duels = self.matchup_analyzer.simulate_individual_duels(
+            local_lineup=optimal_lineup,
+            rival_lineup=rival_xi,
+            opponent_profile=profile_dict,
+        )
+
+        # Evaluar la química y sinergia táctica del Once
+        synergy_eval = self.simulator.evaluate_lineup_synergy(
+            lineup_df=optimal_lineup,
+            formation=form_text,
         )
 
         # Plan de jugadas recomendadas
@@ -262,5 +310,69 @@ class TacticalAnalystDesk:
             "tactical_instructions": mister_inst,
             "optimal_lineup": optimal_lineup,
             "matchup_insights": matchup_insights,
+            "individual_duels": individual_duels,
+            "synergy_assessment": synergy_eval,
             "tactical_plays": plays,
+        }
+
+    # -------------------------------------------------------------------------
+    # 5. Simulación Integral de Jornada de Partido ("Match Day Experience")
+    # -------------------------------------------------------------------------
+    def simulate_match_day(
+        self,
+        home_team: str,
+        away_team: str,
+        home_formation: Optional[Dict[str, int]] = None,
+        away_formation: Optional[Dict[str, int]] = None,
+        seed: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Orquesta una jornada completa de partido ("Match Day Experience"):
+          1. Prepara planes tácticos y Onces titulares para ambos clubes.
+          2. Analiza los micro-duelos tácticos hombre a hombre.
+          3. Predice el resultado 1X2 con modelos calibrados.
+          4. Ejecuta el gemelo digital (Digital Twin) estocástico minuto a minuto (1-90).
+        """
+        from src.models_tactical.match_scenario_simulator import MatchScenarioSimulator
+        scenario_sim = MatchScenarioSimulator(poisson_model=self.poisson_model)
+
+        plan_home = self.prepare_match_plan(home_team, away_team, formation=home_formation)
+        plan_away = self.prepare_match_plan(away_team, home_team, formation=away_formation)
+
+        home_xi = plan_home["optimal_lineup"]
+        away_xi = plan_away["optimal_lineup"]
+
+        h_elo = self.elo_system.get_rating(home_team) if hasattr(self.elo_system, "get_rating") else 1650.0
+        a_elo = self.elo_system.get_rating(away_team) if hasattr(self.elo_system, "get_rating") else 1650.0
+
+        pred_1x2 = self.matchup_analyzer.predict_match_outcome(
+            home_team=home_team,
+            away_team=away_team,
+            local_lineup=home_xi,
+            rival_lineup=away_xi,
+            home_elo=h_elo,
+            away_elo=a_elo,
+        )
+
+        h2h_duels = self.matchup_analyzer.simulate_individual_duels(
+            local_lineup=home_xi,
+            rival_lineup=away_xi,
+        )
+
+        timeline_out = scenario_sim.simulate_match_timeline(
+            home_team=home_team,
+            away_team=away_team,
+            base_elo_home=h_elo,
+            base_elo_away=a_elo,
+            seed=seed,
+            individual_duels=h2h_duels,
+        )
+
+        return {
+            "matchup": f"{home_team} vs {away_team}",
+            "home_plan": plan_home,
+            "away_plan": plan_away,
+            "head_to_head_duels": h2h_duels,
+            "outcome_prediction_1x2": pred_1x2,
+            "match_timeline": timeline_out,
         }

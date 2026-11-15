@@ -13,11 +13,8 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from sqlalchemy import create_engine
-
 # Importaciones de la arquitectura analítica unificada del TFM
 from src.data.global_player_database import load_global_players, sync_global_database_to_postgres
-from src.data.football_api_connector import FootballAPIConnector
 from src.data.advanced_sources_hub import MasterAnalyticsDataHub
 from src.models_scouting.player_profiler import PlayerProfiler
 from src.models_analytics.team_profiler import TeamProfiler
@@ -117,16 +114,6 @@ st.markdown("""
 # =============================================================================
 # 2. CONECTORES CACHEADOS Y DEFENSA ANTE FALLOS
 # =============================================================================
-@st.cache_resource
-def get_db_engine():
-    try:
-        return create_engine("postgresql://moneyball:scouting_admin@postgres:5432/football_db")
-    except Exception:
-        try:
-            return create_engine("postgresql://moneyball:scouting_admin@localhost:5432/football_db")
-        except Exception:
-            return None
-
 @st.cache_data
 def get_players_database(season: str = "2026/2027") -> pd.DataFrame:
     """Carga la base de datos de futbolistas reales con sus métricas y valores oficiales para la temporada solicitada."""
@@ -371,6 +358,8 @@ def main():
                         st.warning("⚠️ No se encontraron futbolistas con el criterio introducido. Mostrando jugadores disponibles.")
 
                 p_list = sorted(pool["player_name"].dropna().unique()) if not pool.empty else sorted(df_players["player_name"].dropna().unique())
+                if "mod1_player_selector" in st.session_state and st.session_state["mod1_player_selector"] not in p_list:
+                    del st.session_state["mod1_player_selector"]
                 def_idx = p_list.index("Vinícius Júnior") if "Vinícius Júnior" in p_list else 0
                 sel_player = st.selectbox("Seleccionar Jugador:", p_list, index=def_idx, key="mod1_player_selector")
 
@@ -385,6 +374,26 @@ def main():
         c_card, c_pizza = st.columns([1.1, 1.9])
         with c_card:
             try:
+                is_gk = bool(card.get("is_goalkeeper", False) or "GK" in str(card.get("position", "")).upper())
+                if is_gk:
+                    stats_grid = f"""
+                        <div>DIV <span style="color: #f5d77f; float: right;">{card.get('DIV', card.get('DEF', 75))}</span></div>
+                        <div>REF <span style="color: #f5d77f; float: right;">{card.get('REF', card.get('DRI', 75))}</span></div>
+                        <div>HAN <span style="color: #f5d77f; float: right;">{card.get('HAN', card.get('SHO', 75))}</span></div>
+                        <div>SPE <span style="color: #f5d77f; float: right;">{card.get('SPE', card.get('PAC', 75))}</span></div>
+                        <div>KIC <span style="color: #f5d77f; float: right;">{card.get('KIC', card.get('PAS', 75))}</span></div>
+                        <div>POS <span style="color: #f5d77f; float: right;">{card.get('POS', card.get('PHY', 75))}</span></div>
+                    """
+                else:
+                    stats_grid = f"""
+                        <div>PAC <span style="color: #f5d77f; float: right;">{card.get('PAC', 75)}</span></div>
+                        <div>DRI <span style="color: #f5d77f; float: right;">{card.get('DRI', 75)}</span></div>
+                        <div>SHO <span style="color: #f5d77f; float: right;">{card.get('SHO', 75)}</span></div>
+                        <div>DEF <span style="color: #f5d77f; float: right;">{card.get('DEF', 75)}</span></div>
+                        <div>PAS <span style="color: #f5d77f; float: right;">{card.get('PAS', 75)}</span></div>
+                        <div>PHY <span style="color: #f5d77f; float: right;">{card.get('PHY', 75)}</span></div>
+                    """
+
                 st.markdown(f"""
                 <div class="fifa-card-fut">
                     <div style="font-size: 52px; font-weight: 900; color: #f5d77f; line-height: 1;">{card.get('OVR', 85)}</div>
@@ -393,12 +402,7 @@ def main():
                     <h3 style="margin: 0; color: #ffffff;">{card.get('player_name', sel_player)}</h3>
                     <p style="color: #c5a059; margin: 4px 0 16px 0; font-size: 14px;">{card.get('league', 'Liga')} | {card.get('age', 25)} Años</p>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-weight: bold; font-size: 16px; text-align: left; padding: 0 10px;">
-                        <div>PAC <span style="color: #f5d77f; float: right;">{card.get('PAC', 75)}</span></div>
-                        <div>DRI <span style="color: #f5d77f; float: right;">{card.get('DRI', 75)}</span></div>
-                        <div>SHO <span style="color: #f5d77f; float: right;">{card.get('SHO', 75)}</span></div>
-                        <div>DEF <span style="color: #f5d77f; float: right;">{card.get('DEF', 75)}</span></div>
-                        <div>PAS <span style="color: #f5d77f; float: right;">{card.get('PAS', 75)}</span></div>
-                        <div>PHY <span style="color: #f5d77f; float: right;">{card.get('PHY', 75)}</span></div>
+                        {stats_grid}
                     </div>
                     <div style="margin-top: 16px; background-color: rgba(0,0,0,0.4); padding: 8px; border-radius: 8px; font-size: 13px; color: #f5d77f;">
                         💰 Valor de Mercado: <b>{card.get('market_value_m', 10.0):.1f} M€</b>
@@ -488,6 +492,8 @@ def main():
         st.markdown(f"Centro de gestión integral del club con las **20 plantillas completas y oficiales de LaLiga {clean_season}**, pirámide demográfica, auditoría de posiciones y ojeador de canteras.")
 
         try:
+            if "mod2_club_selector" in st.session_state and st.session_state["mod2_club_selector"] not in available_clubs:
+                del st.session_state["mod2_club_selector"]
             club_sel = st.selectbox(
                 "Seleccionar Club de LaLiga / Europa:",
                 available_clubs,
@@ -514,6 +520,20 @@ def main():
         k3.metric("Valor Total Nómina", f"{tot_val:.1f} M€")
         k4.metric("Rating Elo Competitivo", f"{elo_val:.0f}")
         k5.metric("Canteranos en Primer Equipo", f"{acad_val}")
+
+        # Identidad Táctica (ADN) del Club
+        adn = overview.get("tactical_adn", {})
+        if adn:
+            st.markdown(
+                f"<div class='glass-card' style='padding: 12px 18px; margin-top: 10px; margin-bottom: 12px; font-size: 13.5px;'>"
+                f"🧬 <b>ADN Táctico ({club_sel}):</b> <code>{adn.get('style', 'Equilibrado')}</code> &nbsp;|&nbsp; "
+                f"🎯 <b>Posesión Media:</b> {adn.get('possession_pct', 50.0):.1f}% &nbsp;|&nbsp; "
+                f"⚡ <b>Presión:</b> {adn.get('pressing_intensity', 7.0):.1f}/10 &nbsp;|&nbsp; "
+                f"↗️ <b>Verticalidad:</b> {adn.get('verticality', 6.0):.1f}/10 &nbsp;|&nbsp; "
+                f"📍 <b>Canal Principal:</b> <i>{adn.get('preferred_channel', 'Neutral')}</i>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
 
         st.markdown("---")
 
@@ -592,6 +612,8 @@ def main():
                 
                 col_c1, col_c2 = st.columns(2)
                 with col_c1:
+                    if "mod2_sel_canterano" in st.session_state and st.session_state["mod2_sel_canterano"] not in acad_candidates:
+                        del st.session_state["mod2_sel_canterano"]
                     sel_canterano = st.selectbox("Canterano del Club:", acad_candidates, index=0, key="mod2_sel_canterano")
                 with col_c2:
                     sel_senior = st.selectbox("Fichaje Senior de Referencia:", senior_candidates, index=0, key="mod2_sel_senior")
@@ -619,11 +641,15 @@ def main():
         st.subheader("🎯 Módulo III: Pizarra Táctica & Simulador de Partido en Tiempo Real (Digital Twin)")
         st.markdown("Planificador táctico automatizado contra el rival de la jornada, simulador estocástico minuto a minuto (estilo NFL) y laboratorio Monte Carlo.")
 
+        if "mod3_local_team" in st.session_state and st.session_state["mod3_local_team"] not in available_clubs:
+            del st.session_state["mod3_local_team"]
         cp1, cp2 = st.columns(2)
         with cp1:
             local_t = st.selectbox("Tu Equipo (Local):", available_clubs, index=def_club_idx, key="mod3_local_team")
         with cp2:
             rival_options = [c for c in available_clubs if c != local_t] or available_clubs
+            if "mod3_rival_team" in st.session_state and st.session_state["mod3_rival_team"] not in rival_options:
+                del st.session_state["mod3_rival_team"]
             def_rival_idx = rival_options.index("Real Madrid") if "Real Madrid" in rival_options else 0
             rival_t = st.selectbox("Equipo Rival (Visitante):", rival_options, index=def_rival_idx, key="mod3_rival_team")
 
@@ -732,10 +758,14 @@ def main():
                 col_w1, col_w2 = st.columns(2)
                 with col_w1:
                     p_out_options = sorted(local_squad["player_name"].unique()) if not local_squad.empty else ["Titular Base"]
+                    if "whatif_p_out" in st.session_state and st.session_state["whatif_p_out"] not in p_out_options:
+                        del st.session_state["whatif_p_out"]
                     sel_p_out = st.selectbox("Jugador a sustituir en tu XI:", p_out_options, index=0, key="whatif_p_out")
                 with col_w2:
                     p_in_pool = df_players[df_players["team_name"] != local_t]
                     p_in_options = sorted(p_in_pool["player_name"].unique()) if not p_in_pool.empty else ["Candidato Mercado"]
+                    if "whatif_p_in" in st.session_state and st.session_state["whatif_p_in"] not in p_in_options:
+                        del st.session_state["whatif_p_in"]
                     sel_p_in = st.selectbox("Nuevo Fichaje a incorporar:", p_in_options, index=0, key="whatif_p_in")
 
                 cand_matches = df_players[df_players["player_name"] == sel_p_in]

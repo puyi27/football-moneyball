@@ -1,7 +1,8 @@
 from typing import Dict, List, Any, Optional, Union
 import numpy as np
 import pandas as pd
-from src.models_scouting.player_profiler import PlayerProfiler
+from unidecode import unidecode
+from src.models_scouting.player_profiler import PlayerProfiler, _normalize_position
 from src.data.real_dataset_loader import generate_curated_real_dataset
 
 
@@ -13,8 +14,9 @@ class AcademyScout:
       2. Descubrir 'perlas' en canteras rivales y ligas formadoras (Portugal, Holanda, etc.).
       3. Analizar la curva de progresión: OVR actual vs OVR potencial (Growth Delta).
       4. Recomendar la ruta de desarrollo óptima (Promoción al 1er equipo, Cesión formativa o Fichaje sub-20).
-      5. Calcular el impacto financiero: Ahorro en millones de euros y Fair Play Financiero
+      5. Calcular el impacto financiero: Ahorro en millones de euros y Fair Play Financiero (Capology)
          al promover un canterano frente a fichar a un jugador consolidado equivalente.
+      6. Compatibilidad total multitemporada.
     """
 
     def __init__(self, players_df: Optional[pd.DataFrame] = None):
@@ -32,8 +34,8 @@ class AcademyScout:
 
         ovrs = []
         for _, row in self.df.iterrows():
-            if "ovr" in row and not pd.isna(row["ovr"]) and row["ovr"] > 0:
-                ovrs.append(int(row["ovr"]))
+            if "ovr" in row and pd.notna(row["ovr"]) and float(row["ovr"]) > 0:
+                ovrs.append(int(float(row["ovr"])))
             else:
                 fifa_card = profiler.calculate_fifa_card(row)
                 ovrs.append(int(fifa_card.get("OVR", fifa_card.get("ovr", 75))))
@@ -46,8 +48,8 @@ class AcademyScout:
         potentials = []
         for _, r in self.df.iterrows():
             pot = r.get("potential_ovr", np.nan)
-            if pd.isna(pot) or pot is None or pot <= 0:
-                age = float(r.get("age", 25))
+            if pd.isna(pot) or pot is None or float(pot) <= 0:
+                age = float(r.get("age", 25) or 25)
                 ovr = int(r["current_ovr"])
                 if age <= 19:
                     pot = min(94, ovr + 8)
@@ -57,7 +59,7 @@ class AcademyScout:
                     pot = min(90, ovr + 2)
                 else:
                     pot = ovr
-            potentials.append(int(pot))
+            potentials.append(int(float(pot)))
         self.df["potential_ovr"] = potentials
 
         # Columna delta de crecimiento
@@ -84,16 +86,27 @@ class AcademyScout:
         only_own_academy: bool = False,
         min_potential: int = 80,
         max_age: int = 21,
-        position: Optional[str] = None
+        position: Optional[str] = None,
+        season: Optional[str] = None
     ) -> pd.DataFrame:
         """
         Filtra y devuelve las promesas de la cantera o de academias rivales.
+        Soporta filtrado multitemporada para evitar la duplicación de canteranos interanual.
         """
-        filtered = self.df[self.df["potential_ovr"] >= min_potential].copy()
+        pool = self.df.copy()
+
+        if season and "season" in pool.columns:
+            pool = pool[pool["season"] == season]
+        elif "season" in pool.columns and pool["season"].nunique() > 1 and not only_own_academy:
+            # En multitemporada general, conservar el registro más reciente de cada futbolista
+            pool = pool.sort_values(by="season", ascending=False).drop_duplicates(subset=["player_name"], keep="first")
+
+        filtered = pool[pool["potential_ovr"] >= min_potential].copy()
         filtered = filtered[filtered["age"] <= max_age]
 
         if position:
-            filtered = filtered[filtered["position"].str.upper() == position.upper()]
+            norm_target_pos = _normalize_position(position)
+            filtered = filtered[filtered["position"].apply(_normalize_position) == norm_target_pos]
 
         if team_name:
             if only_own_academy:
@@ -102,21 +115,21 @@ class AcademyScout:
                 # Marcar procedencia: propia vs rival
                 filtered["is_own_academy"] = filtered["team_name"].str.lower() == team_name.lower()
 
-        # Añadir estimación de ahorro financiero frente a fichaje senior equivalente
+        # Estimación de coste de reemplazo senior equivalente
         filtered["senior_market_benchmark_m"] = filtered["potential_ovr"].apply(self._estimate_senior_replacement_cost)
-        
+
         # Ahorro neto: Si es propia cantera, el coste de adquisición es 0 M€. Si es rival, es el benchmark - su valor actual
         if team_name and "is_own_academy" in filtered.columns:
             filtered["projected_savings_m"] = np.where(
                 filtered["is_own_academy"],
                 filtered["senior_market_benchmark_m"],
-                np.maximum(0.0, filtered["senior_market_benchmark_m"] - filtered["market_value_m"])
+                np.maximum(0.0, filtered["senior_market_benchmark_m"] - filtered["market_value_m"].fillna(5.0))
             )
         else:
             filtered["projected_savings_m"] = np.where(
                 filtered["is_academy"],
                 filtered["senior_market_benchmark_m"],
-                np.maximum(0.0, filtered["senior_market_benchmark_m"] - filtered["market_value_m"])
+                np.maximum(0.0, filtered["senior_market_benchmark_m"] - filtered["market_value_m"].fillna(5.0))
             )
 
         filtered["projected_savings_m"] = filtered["projected_savings_m"].round(1)
@@ -132,24 +145,30 @@ class AcademyScout:
         """
         Genera el informe de ruta de desarrollo (Career Pathway) para una joven promesa.
         Acepta tanto el nombre del jugador (str) como su player_id (int).
+        Garantiza consistencia multitemporada seleccionando el registro más reciente.
         """
-        if isinstance(player_name, int) or (isinstance(player_name, str) and player_name.isdigit()):
+        if isinstance(player_name, (int, np.integer)) or (isinstance(player_name, str) and player_name.isdigit()):
             p_id = int(player_name)
             matches = self.df[self.df["player_id"] == p_id]
         else:
-            matches = self.df[self.df["player_name"].str.lower() == str(player_name).lower()]
+            clean_q = unidecode(str(player_name).strip().lower())
+            matches = self.df[self.df["player_name"].apply(lambda n: unidecode(str(n).strip().lower())) == clean_q]
             if matches.empty:
                 matches = self.df[self.df["player_name"].str.lower().str.contains(str(player_name).lower(), regex=False)]
 
         if matches.empty:
             raise ValueError(f"Jugador '{player_name}' no encontrado en la base de datos de cantera.")
 
+        # Si hay múltiples temporadas, tomar el registro más reciente
+        if len(matches) > 1 and "season" in matches.columns:
+            matches = matches.sort_values(by="season", ascending=False)
+
         row = matches.iloc[0]
         age = int(row["age"])
         cur_ovr = int(row["current_ovr"])
         pot_ovr = int(row["potential_ovr"])
         delta = int(row["growth_delta"])
-        market_val = float(row.get("market_value_m", 5.0))
+        market_val = float(row.get("market_value_m", 5.0) or 5.0)
         academy = str(row.get("academy_origin", f"Cantera {row.get('team_name', '')}"))
         club = str(row.get("team_name", ""))
 
@@ -217,20 +236,26 @@ class AcademyScout:
         Muestra coste de transferencia, impacto en masa salarial y amortizaciones FFP.
         Acepta tanto nombres de jugadores (str) como identificadores numéricos (player_id: int).
         """
-        if isinstance(academy_player_name, int) or (isinstance(academy_player_name, str) and academy_player_name.isdigit()):
+        if isinstance(academy_player_name, (int, np.integer)) or (isinstance(academy_player_name, str) and academy_player_name.isdigit()):
             ac_matches = self.df[self.df["player_id"] == int(academy_player_name)]
         else:
-            ac_matches = self.df[self.df["player_name"].str.lower().str.contains(str(academy_player_name).lower(), regex=False)]
+            clean_ac = unidecode(str(academy_player_name).strip().lower())
+            ac_matches = self.df[self.df["player_name"].apply(lambda n: unidecode(str(n).strip().lower())) == clean_ac]
+            if ac_matches.empty:
+                ac_matches = self.df[self.df["player_name"].str.lower().str.contains(str(academy_player_name).lower(), regex=False)]
         if ac_matches.empty:
             ac_matches = self.df[self.df["is_academy"] == True]
             if ac_matches.empty:
                 ac_matches = self.df.head(1)
         ac_row = ac_matches.iloc[0]
 
-        if isinstance(senior_star_name, int) or (isinstance(senior_star_name, str) and senior_star_name.isdigit()):
+        if isinstance(senior_star_name, (int, np.integer)) or (isinstance(senior_star_name, str) and senior_star_name.isdigit()):
             sr_matches = self.df[self.df["player_id"] == int(senior_star_name)]
         else:
-            sr_matches = self.df[self.df["player_name"].str.lower().str.contains(str(senior_star_name).lower(), regex=False)]
+            clean_sr = unidecode(str(senior_star_name).strip().lower())
+            sr_matches = self.df[self.df["player_name"].apply(lambda n: unidecode(str(n).strip().lower())) == clean_sr]
+            if sr_matches.empty:
+                sr_matches = self.df[self.df["player_name"].str.lower().str.contains(str(senior_star_name).lower(), regex=False)]
         if sr_matches.empty:
             sr_matches = self.df[self.df["market_value_m"] >= 25.0]
             if sr_matches.empty:
@@ -238,19 +263,29 @@ class AcademyScout:
         sr_row = sr_matches.iloc[0]
 
         # Costes Cantera
-        ac_transfer_cost = 0.0 if ac_row.get("is_academy", True) else float(ac_row.get("market_value_m", 10.0))
-        ac_estimated_wage_annual = 1.2  # 1.2M€ sueldo típico canterano primer contrato
+        ac_transfer_cost = 0.0 if ac_row.get("is_academy", True) else float(ac_row.get("market_value_m", 10.0) or 10.0)
+        # Salario real si está disponible en Capology o estimación estándar de cantera
+        ac_raw_wage = ac_row.get("gross_salary_m")
+        if ac_raw_wage is not None and pd.notna(ac_raw_wage) and float(ac_raw_wage) > 0:
+            ac_estimated_wage_annual = round(float(ac_raw_wage), 2)
+        else:
+            ac_estimated_wage_annual = 1.2  # 1.2M€ sueldo típico canterano primer contrato
         ac_amortization_annual = ac_transfer_cost / 5.0
 
         # Costes Senior
-        sr_transfer_cost = float(sr_row.get("market_value_m", 60.0))
-        sr_estimated_wage_annual = max(6.0, round(sr_transfer_cost * 0.12, 1))  # 12% del valor de mercado
+        sr_transfer_cost = float(sr_row.get("market_value_m", 60.0) or 60.0)
+        sr_raw_wage = sr_row.get("gross_salary_m")
+        if sr_raw_wage is not None and pd.notna(sr_raw_wage) and float(sr_raw_wage) > 0:
+            sr_estimated_wage_annual = round(float(sr_raw_wage), 2)
+        else:
+            sr_estimated_wage_annual = max(6.0, round(sr_transfer_cost * 0.12, 1))  # 12% del valor de mercado
         sr_amortization_annual = round(sr_transfer_cost / 4.0, 1)  # Amortización a 4 años
 
         total_cost_5yr_academy = (ac_transfer_cost + (ac_estimated_wage_annual * 5))
         total_cost_4yr_senior = (sr_transfer_cost + (sr_estimated_wage_annual * 4))
 
         savings_total = total_cost_4yr_senior - total_cost_5yr_academy
+        ffp_relief_annual = (sr_amortization_annual + sr_estimated_wage_annual) - (ac_amortization_annual + ac_estimated_wage_annual)
 
         return {
             "comparison_title": f"Apostar por {ac_row['player_name']} vs Fichar a {sr_row['player_name']}",
@@ -278,7 +313,7 @@ class AcademyScout:
             },
             "financial_verdict": {
                 "net_savings_eur_m": round(savings_total, 1),
-                "ffp_relief_annual_m": round((sr_amortization_annual + sr_estimated_wage_annual) - (ac_amortization_annual + ac_estimated_wage_annual), 1),
+                "ffp_relief_annual_m": round(ffp_relief_annual, 1),
                 "verdict_summary": f"La apuesta por {ac_row['player_name']} libera {round(savings_total, 1)} M€ de presupuesto y salvaguarda el límite salarial de LaLiga."
             }
         }
@@ -304,15 +339,19 @@ class AcademyScout:
     @staticmethod
     def _generate_development_milestones(row: pd.Series) -> List[str]:
         """Genera hitos táctico-físicos personalizados para el plan de trabajo de la promesa."""
-        pos = str(row.get("position", "MF")).upper()
+        pos = _normalize_position(row.get("position", "MF"))
         milestones = []
-        if "FW" in pos:
+        if pos == "FW":
             milestones.append("Fase de definición: optimizar ratio disparos entre los 3 palos en transiciones rápidas.")
             milestones.append("Físico: Ganancia de masa muscular en tren inferior para aguantar duelos espaldas a portería.")
-        elif "DF" in pos:
+        elif pos == "DF":
             milestones.append("Táctica defensiva: perfilado corporal y anticipación en vigilancias a la espalda de laterales.")
             milestones.append("Salida de balón: batir la primera línea de presión rival con pases tensos interiores.")
+        elif pos == "GK":
+            milestones.append("Juego aéreo: timing de salida en centros laterales y blocaje en área chica.")
+            milestones.append("Juego de pies: pase tenso hacia mediocentros bajo presión rival.")
         else:
             milestones.append("Visión espacial: mejorar escaneo visual antes de recepción orientada bajo presión alta.")
             milestones.append("Recuperación: intensidad en el 'counter-pressing' en los 5 segundos posteriores a la pérdida.")
         return milestones
+
