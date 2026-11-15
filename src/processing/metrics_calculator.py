@@ -4,10 +4,13 @@ from pyspark.sql.functions import col, when, round, percent_rank
 from pyspark.sql.window import Window
 
 def get_spark_session() -> SparkSession:
-    return SparkSession.builder \
-        .appName("Moneyball_Scouting_Metrics") \
-        .config("spark.jars.packages", "org.postgresql:postgresql:42.6.0") \
-        .getOrCreate()
+    builder = SparkSession.builder.appName("Moneyball_Scouting_Metrics")
+    jar_path = "/usr/local/spark-3.5.0-bin-hadoop3/jars/postgresql-42.6.0.jar"
+    if os.path.exists(jar_path):
+        builder = builder.config("spark.jars", jar_path)
+    else:
+        builder = builder.config("spark.jars.packages", "org.postgresql:postgresql:42.6.0")
+    return builder.getOrCreate()
 
 def calculate_scouting_metrics(df_stats, df_players):
     """
@@ -86,7 +89,7 @@ def run_metrics_pipeline(db_url, db_user, db_password):
     spark.stop()
 
 if __name__ == "__main__":
-    DB_URL = "jdbc:postgresql://fb_postgres:5432/moneyball"
-    DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASS = os.getenv("DB_PASSWORD", "postgres")
+    DB_URL = "jdbc:postgresql://fb_postgres:5432/football_db"
+    DB_USER = os.getenv("DB_USER", "moneyball")
+    DB_PASS = os.getenv("DB_PASSWORD", "scouting_admin")
     run_metrics_pipeline(DB_URL, DB_USER, DB_PASS)
